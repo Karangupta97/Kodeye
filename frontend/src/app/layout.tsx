@@ -4,6 +4,7 @@ import { ThemeProvider } from "@/components/providers/ThemeProvider";
 import { AuthProvider } from "@/components/providers/AuthProvider";
 import { Toaster } from "react-hot-toast";
 import "./globals.css";
+import "@/styles/kodeye.css";
 
 const inter = Inter({
   variable: "--font-inter",

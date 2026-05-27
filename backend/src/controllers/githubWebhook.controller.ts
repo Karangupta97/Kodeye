@@ -25,6 +25,19 @@ export const handleGithubWebhook = async (req: Request, res: Response) => {
 
   const action = payload.action || null;
   const repository = payload.repository?.full_name || null;
+  const installationId = payload.installation?.id || null;
+  const repositoryId = payload.repository?.id || null;
+  const githubPrId = payload.pull_request?.id || null;
+
+  logger.info("GitHub webhook received", {
+    deliveryId,
+    eventType,
+    action,
+    repository,
+    installationId,
+    repositoryId,
+    githubPrId,
+  });
 
   try {
     await logWebhookEvent({

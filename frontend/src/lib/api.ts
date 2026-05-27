@@ -5,9 +5,12 @@ export interface ApiResponse<T> {
   data: T;
 }
 
+export type ApiValidator<T> = (payload: unknown) => payload is T;
+
 export const fetchApi = async <T>(
   path: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  validator?: ApiValidator<T>
 ): Promise<T> => {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
@@ -21,6 +24,14 @@ export const fetchApi = async <T>(
     throw new Error(`Request failed: ${response.status}`);
   }
 
-  const payload = (await response.json()) as ApiResponse<T>;
-  return payload.data;
+  const payload = (await response.json()) as ApiResponse<unknown>;
+  if (!("data" in payload)) {
+    throw new Error("Invalid API response shape");
+  }
+
+  if (validator && !validator(payload.data)) {
+    throw new Error("API response validation failed");
+  }
+
+  return payload.data as T;
 };
