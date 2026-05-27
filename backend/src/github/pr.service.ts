@@ -38,6 +38,23 @@ export const getPullRequestFiles = async ({
   return files;
 };
 
+export const listOpenPullRequests = async ({
+  installationId,
+  owner,
+  repo,
+}: Omit<PullRequestIdentifier, "pullNumber">) => {
+  const octokit = getInstallationOctokit(installationId);
+  const pulls = await octokit.paginate(octokit.pulls.list, {
+    owner,
+    repo,
+    state: "all",
+    sort: "updated",
+    direction: "desc",
+    per_page: 50,
+  });
+  return pulls;
+};
+
 export const getPullRequestDiff = async ({
   installationId,
   owner,
@@ -57,5 +74,5 @@ export const getPullRequestDiff = async ({
     }
   );
 
-  return response.data as string;
+  return String(response.data);
 };

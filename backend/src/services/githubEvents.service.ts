@@ -120,9 +120,24 @@ export const handlePullRequestEvent = async (payload: any) => {
   const installationId = payload.installation?.id;
   const repository = payload.repository as GitHubRepositoryInfo;
   const pullRequest = payload.pull_request;
+  const deliveryId = payload?.delivery || "n/a";
+
+  logger.info("Processing pull_request webhook", {
+    deliveryId,
+    action,
+    installationId: installationId || null,
+    repository: repository?.full_name || null,
+    githubPrId: pullRequest?.id || null,
+    pullNumber: pullRequest?.number || null,
+  });
 
   if (!installationId || !repository || !pullRequest) {
-    logger.warn("Pull request payload missing required fields");
+    logger.warn("Pull request payload missing required fields", {
+      deliveryId,
+      hasInstallation: Boolean(installationId),
+      hasRepository: Boolean(repository),
+      hasPullRequest: Boolean(pullRequest),
+    });
     return;
   }
 
@@ -142,6 +157,13 @@ export const handlePullRequestEvent = async (payload: any) => {
     created_at: pullRequest.created_at || new Date().toISOString(),
   });
 
+  logger.info("Pull request persisted", {
+    deliveryId,
+    pullRequestId: prRecord.id,
+    githubPrId: pullRequest.id,
+    repoId: repoRecord.id,
+  });
+
   const owner =
     repository.owner?.login || repository.full_name?.split("/")[0] || "";
   const repo = repository.name;
@@ -151,6 +173,12 @@ export const handlePullRequestEvent = async (payload: any) => {
     owner,
     repo,
     pullNumber: pullRequest.number,
+  });
+
+  logger.debug("Fetched pull request files", {
+    deliveryId,
+    pullNumber: pullRequest.number,
+    files: files.length,
   });
 
   const fileRecords: PullRequestFileRecord[] = files.map((file: any) => ({
@@ -166,6 +194,11 @@ export const handlePullRequestEvent = async (payload: any) => {
   }));
 
   await replacePullRequestFiles(prRecord.id, fileRecords);
+  logger.debug("Stored pull request files", {
+    deliveryId,
+    pullRequestId: prRecord.id,
+    files: fileRecords.length,
+  });
 
   try {
     const diff = await getPullRequestDiff({

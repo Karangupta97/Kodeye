@@ -65,3 +65,34 @@ export const listPullRequestFiles = async (pullRequestId: string) => {
 
   return data || [];
 };
+
+export const listPullRequestFileCounts = async (pullRequestIds: string[]) => {
+  if (!pullRequestIds.length) {
+    return new Map<string, number>();
+  }
+
+  const supabase = getDB();
+  const { data, error } = await supabase
+    .from("pull_request_files")
+    .select("pull_request_id")
+    .in("pull_request_id", pullRequestIds);
+
+  if (error) {
+    logger.error("Failed to list pull request file counts", {
+      error: error.message,
+    });
+    throw error;
+  }
+
+  const counts = new Map<string, number>();
+  for (const id of pullRequestIds) {
+    counts.set(id, 0);
+  }
+
+  for (const row of data || []) {
+    const pullRequestId = row.pull_request_id as string;
+    counts.set(pullRequestId, (counts.get(pullRequestId) || 0) + 1);
+  }
+
+  return counts;
+};

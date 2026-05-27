@@ -1,4 +1,5 @@
 import dotenv from "dotenv";
+import crypto from "crypto";
 
 dotenv.config();
 
@@ -25,6 +26,47 @@ export const getGithubAppId = (): number => {
 };
 
 export const getGithubPrivateKey = (): string => {
-  const raw = requireEnv("GITHUB_PRIVATE_KEY");
-  return raw.replace(/\\n/g, "\n");
+  const raw = requireEnv("GITHUB_PRIVATE_KEY").trim();
+  const unquoted =
+    raw.startsWith('"') && raw.endsWith('"') ? raw.slice(1, -1) : raw;
+  const normalized = unquoted.replace(/\\n/g, "\n");
+
+  if (normalized.includes("-----BEGIN")) {
+    try {
+      const keyObject = crypto.createPrivateKey(normalized);
+      return keyObject
+        .export({ type: "pkcs8", format: "pem" })
+        .toString()
+        .trim();
+    } catch {
+      // Continue to fallback parsing paths.
+    }
+  }
+
+  try {
+    const decodedBuffer = Buffer.from(normalized, "base64");
+    const decodedText = decodedBuffer.toString("utf8").trim();
+
+    if (decodedText.includes("-----BEGIN")) {
+      const keyObject = crypto.createPrivateKey(decodedText);
+      return keyObject
+        .export({ type: "pkcs8", format: "pem" })
+        .toString()
+        .trim();
+    }
+
+    const keyObject = crypto.createPrivateKey({
+      key: decodedBuffer,
+      format: "der",
+      type: "pkcs8",
+    });
+    return keyObject
+      .export({ type: "pkcs8", format: "pem" })
+      .toString()
+      .trim();
+  } catch (_error) {
+    throw new Error(
+      "GITHUB_PRIVATE_KEY is invalid. Provide a valid PEM private key, escaped PEM, or base64-encoded PKCS8 key."
+    );
+  }
 };
