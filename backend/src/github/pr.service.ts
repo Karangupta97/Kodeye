@@ -13,7 +13,7 @@ export const getPullRequest = async ({
   repo,
   pullNumber,
 }: PullRequestIdentifier) => {
-  const octokit = getInstallationOctokit(installationId);
+  const octokit = await getInstallationOctokit(installationId);
   const { data } = await octokit.pulls.get({
     owner,
     repo,
@@ -28,7 +28,7 @@ export const getPullRequestFiles = async ({
   repo,
   pullNumber,
 }: PullRequestIdentifier) => {
-  const octokit = getInstallationOctokit(installationId);
+  const octokit = await getInstallationOctokit(installationId);
   const files = await octokit.paginate(octokit.pulls.listFiles, {
     owner,
     repo,
@@ -43,7 +43,7 @@ export const listOpenPullRequests = async ({
   owner,
   repo,
 }: Omit<PullRequestIdentifier, "pullNumber">) => {
-  const octokit = getInstallationOctokit(installationId);
+  const octokit = await getInstallationOctokit(installationId);
   const pulls = await octokit.paginate(octokit.pulls.list, {
     owner,
     repo,
@@ -61,7 +61,7 @@ export const getPullRequestDiff = async ({
   repo,
   pullNumber,
 }: PullRequestIdentifier) => {
-  const octokit = getInstallationOctokit(installationId);
+  const octokit = await getInstallationOctokit(installationId);
   const response = await octokit.request(
     "GET /repos/{owner}/{repo}/pulls/{pull_number}",
     {

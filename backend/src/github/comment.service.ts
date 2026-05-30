@@ -21,7 +21,7 @@ export const postInlineComment = async ({
   line,
   body,
 }: InlineCommentInput) => {
-  const octokit = getInstallationOctokit(installationId);
+  const octokit = await getInstallationOctokit(installationId);
   const response = await octokit.pulls.createReviewComment({
     owner,
     repo,

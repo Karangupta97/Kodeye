@@ -50,6 +50,10 @@ try {
 	logger.error("Failed to connect Supabase", { error });
 }
 
-app.listen(PORT, () => {
-	logger.info(`Server running on http://localhost:${PORT}`);
-});
+export default app;
+
+if (require.main === module) {
+	app.listen(PORT, () => {
+		logger.info(`Server running on http://localhost:${PORT}`);
+	});
+}

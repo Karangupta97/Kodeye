@@ -1,8 +1,17 @@
-import { Octokit } from "@octokit/rest";
-import { createAppAuth } from "@octokit/auth-app";
 import { getGithubAppId, getGithubPrivateKey } from "../config/env";
 
-export const getAppOctokit = (): Octokit => {
+const loadOctokit = async (): Promise<{ Octokit: any; createAppAuth: any }> => {
+  const [{ Octokit }, { createAppAuth }] = await Promise.all([
+    import("@octokit/rest"),
+    import("@octokit/auth-app"),
+  ]);
+
+  return { Octokit, createAppAuth };
+};
+
+export const getAppOctokit = async (): Promise<any> => {
+  const { Octokit, createAppAuth } = await loadOctokit();
+
   return new Octokit({
     authStrategy: createAppAuth,
     auth: {
@@ -12,7 +21,11 @@ export const getAppOctokit = (): Octokit => {
   });
 };
 
-export const getInstallationOctokit = (installationId: number): Octokit => {
+export const getInstallationOctokit = async (
+  installationId: number
+): Promise<any> => {
+  const { Octokit, createAppAuth } = await loadOctokit();
+
   return new Octokit({
     authStrategy: createAppAuth,
     auth: {

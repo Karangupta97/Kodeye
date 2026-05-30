@@ -298,7 +298,7 @@ export const runAIReview = async (
 
     // Post summary comment as a regular PR comment
     try {
-      const octokit = getInstallationOctokit(request.installationId);
+      const octokit = await getInstallationOctokit(request.installationId);
       const summary = formatSummaryComment(deduplicated, riskScores.overallRisk);
 
       await octokit.issues.createComment({
