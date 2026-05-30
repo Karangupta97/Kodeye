@@ -12,6 +12,10 @@ export const getGeminiApiKey = (): string => {
   return requireEnv("GEMINI_API_KEY");
 };
 
+/** Gemini model for review agents (override via GEMINI_MODEL). */
+export const getGeminiModel = (): string =>
+  process.env.GEMINI_MODEL || "gemini-2.0-flash";
+
 export const getOpenAIApiKey = (): string | null => {
   return process.env.OPENAI_API_KEY || null;
 };

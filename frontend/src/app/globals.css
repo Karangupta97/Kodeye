@@ -15,8 +15,6 @@
   --color-kd-critical: var(--kd-critical);
   --color-kd-warning: var(--kd-warning);
   --color-kd-success: var(--kd-success);
-  --color-kd-info: var(--kd-info);
-  --color-kd-suggestion: var(--kd-suggestion);
 
   /* ── Fonts ────────────────────────────────────────────── */
   --font-sans: var(--font-inter), system-ui, -apple-system, sans-serif;
@@ -29,4 +27,25 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+/* Focus & accessibility */
+:focus-visible {
+  outline: 2px solid var(--kd-primary);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .gradient-blob {
+    animation: none !important;
+  }
 }

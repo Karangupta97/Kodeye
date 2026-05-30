@@ -1,15 +1,54 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-export async function updateSession(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({
-    request,
-  });
+const PROTECTED_PREFIXES = [
+  "/overview",
+  "/dashboard",
+  "/repositories",
+  "/settings",
+  "/pull-requests",
+  "/reviews",
+  "/ai-reviews",
+  "/risk-insights",
+  "/reports",
+  "/integrations",
+  "/team",
+];
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
+/** Routes that must always render without auth redirects */
+const PUBLIC_PATHS = new Set(["/", "/login"]);
+
+const isPublicPath = (pathname: string) => {
+  if (PUBLIC_PATHS.has(pathname)) return true;
+  if (pathname.startsWith("/auth/")) return true;
+  return false;
+};
+
+const isProtectedPath = (pathname: string) =>
+  PROTECTED_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
+  );
+
+export async function updateSession(request: NextRequest) {
+  const pathname = request.nextUrl.pathname;
+
+  let supabaseResponse = NextResponse.next({ request });
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    if (isProtectedPath(pathname)) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/login";
+      url.searchParams.set("error", "config");
+      return NextResponse.redirect(url);
+    }
+    return supabaseResponse;
+  }
+
+  try {
+    const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
       cookies: {
         getAll() {
           return request.cookies.getAll();
@@ -18,41 +57,42 @@ export async function updateSession(request: NextRequest) {
           cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value)
           );
-          supabaseResponse = NextResponse.next({
-            request,
-          });
+          supabaseResponse = NextResponse.next({ request });
           cookiesToSet.forEach(({ name, value, options }) =>
             supabaseResponse.cookies.set(name, value, options)
           );
         },
       },
+    });
+
+    const {
+      data: { user },
+      error,
+    } = await supabase.auth.getUser();
+
+    const isAuthenticated = Boolean(user) && !error;
+
+    if (isProtectedPath(pathname) && !isAuthenticated) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/login";
+      url.searchParams.set("next", pathname);
+      return NextResponse.redirect(url);
     }
-  );
 
-  // IMPORTANT: Do NOT use getSession() here.
-  // getUser() validates the token against the Supabase server on every request.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    if (pathname === "/login" && isAuthenticated) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/overview";
+      url.search = "";
+      return NextResponse.redirect(url);
+    }
 
-  // Protected routes — redirect to /login if not authenticated
-  const protectedPaths = ["/dashboard", "/repositories", "/settings"];
-  const isProtectedRoute = protectedPaths.some((path) =>
-    request.nextUrl.pathname.startsWith(path)
-  );
-
-  if (isProtectedRoute && !user) {
+    return supabaseResponse;
+  } catch {
+    if (isPublicPath(pathname)) {
+      return NextResponse.next({ request });
+    }
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
   }
-
-  // If user is logged in and visits /login, redirect to /dashboard
-  if (request.nextUrl.pathname === "/login" && user) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
-    return NextResponse.redirect(url);
-  }
-
-  return supabaseResponse;
 }

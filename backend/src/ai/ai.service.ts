@@ -16,10 +16,13 @@ import {
   formatSummaryComment,
 } from "./formatter/github.formatter";
 import { postInlineComment } from "../github/comment.service";
+import { logWebhookEvent } from "../services/webhookLogs.service";
 import { getInstallationOctokit } from "../github/octokit";
 import { insertReviews, deleteReviewsByPR } from "../services/aiReviews.service";
 import { upsertRiskScore } from "../services/riskScores.service";
+import { deleteFixesByPR, generateFixesForPR } from "./fixes/fix.service";
 import { parsePatch } from "../utils/diff";
+import { analyzeDiffForStaticIssues } from "./static/diff.analyzer";
 
 export interface AIReviewResult {
   issues: AIReviewIssue[];
@@ -30,6 +33,7 @@ export interface AIReviewResult {
 
 export interface ReviewRequest {
   prId: string;
+  repositoryId: string;
   prNumber: number;
   prTitle: string;
   prDescription?: string;
@@ -113,11 +117,22 @@ export const runAIReview = async (
     }
   });
 
+  // ── Phase 2b: Static diff analysis (JSON/config syntax, etc.) ──
+  const staticIssues = analyzeDiffForStaticIssues(request.files);
+  if (staticIssues.length > 0) {
+    allIssues.push(...staticIssues);
+    logger.info("AI Review: Static analyzer findings", {
+      count: staticIssues.length,
+    });
+  }
+
   // ── Phase 3: Deduplicate ──────────────────────────────
   const deduplicated = deduplicateIssues(allIssues);
   logger.info("AI Review: Deduplication complete", {
     before: allIssues.length,
     after: deduplicated.length,
+    static: staticIssues.length,
+    ai: allIssues.length - staticIssues.length,
   });
 
   // ── Phase 4: Risk scoring ─────────────────────────────
@@ -131,10 +146,25 @@ export const runAIReview = async (
   logger.info("AI Review: Risk scores calculated", { riskScores });
 
   // ── Phase 5: Store results ────────────────────────────
+  let insertedFindings: Array<{
+    id: string;
+    pr_id: string;
+    severity: string;
+    category: string;
+    file: string;
+    line: number;
+    issue: string;
+    why: string;
+    fix: string;
+    confidence: number;
+  }> = [];
+
   try {
+    await deleteFixesByPR(prId);
     await deleteReviewsByPR(prId);
+
     if (deduplicated.length > 0) {
-      await insertReviews(
+      insertedFindings = await insertReviews(
         prId,
         deduplicated.map((issue) => ({
           severity: issue.severity,
@@ -147,6 +177,13 @@ export const runAIReview = async (
           confidence: issue.confidence,
         }))
       );
+
+      if (insertedFindings.length !== deduplicated.length) {
+        logger.warn("AI Review: Insert count mismatch", {
+          expected: deduplicated.length,
+          inserted: insertedFindings.length,
+        });
+      }
     }
 
     await upsertRiskScore(prId, {
@@ -159,12 +196,48 @@ export const runAIReview = async (
     logger.info("AI Review: Results stored in database", {
       prId,
       issues: deduplicated.length,
+      persisted: insertedFindings.length,
     });
   } catch (error) {
     logger.error("AI Review: Failed to store results", {
       prId,
       error: (error as Error).message,
     });
+    throw error;
+  }
+
+  // ── Phase 5b: Generate AI code fixes ───────────────────
+  if (insertedFindings.length > 0) {
+    try {
+      const fixResult = await generateFixesForPR({
+        prId,
+        repositoryId: request.repositoryId,
+        findings: insertedFindings.map((row) => ({
+          id: row.id,
+          pr_id: prId,
+          severity: row.severity,
+          category: row.category,
+          file: row.file,
+          line: row.line,
+          issue: row.issue,
+          why: row.why,
+          fix: row.fix,
+          confidence: row.confidence,
+        })),
+        files: request.files,
+        metadata: {
+          title: request.prTitle,
+          description: request.prDescription,
+          repositoryFullName: request.repositoryFullName,
+        },
+      });
+      logger.info("AI Review: Fix generation complete", { prId, ...fixResult });
+    } catch (error) {
+      logger.error("AI Review: Fix generation failed", {
+        prId,
+        error: (error as Error).message,
+      });
+    }
   }
 
   // ── Phase 6: Post GitHub comments ─────────────────────
@@ -249,6 +322,7 @@ export const runAIReview = async (
       commentsPosted,
       totalIssues: deduplicated.length,
     });
+
   } catch (error) {
     logger.error("AI Review: Comment posting failed", {
       prId,
@@ -264,6 +338,22 @@ export const runAIReview = async (
     commentsPosted,
     duration: `${duration}ms`,
   });
+
+  try {
+    await logWebhookEvent({
+      event_type: "kodeye_ai_review",
+      action: commentsPosted > 0 ? "comments_posted" : "completed",
+      repository: `${request.owner}/${request.repo}`,
+      payload: {
+        pull_request: { number: request.prNumber },
+        comments_posted: commentsPosted,
+        issues_found: deduplicated.length,
+        pr_id: prId,
+      },
+    });
+  } catch {
+    /* non-fatal */
+  }
 
   return {
     issues: deduplicated,

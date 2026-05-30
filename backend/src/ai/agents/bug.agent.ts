@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { getGeminiApiKey } from "../../config/env";
+import { getGeminiApiKey, getGeminiModel } from "../../config/env";
 import { parseAIResponse } from "../parser/response.parser";
 import { validateIssues, AIReviewIssue } from "../parser/schema.validator";
 import { buildReviewPrompt } from "../prompts/review.prompt";
@@ -52,7 +52,7 @@ export const runBugAgent = async (
 
   try {
     const genAI = new GoogleGenerativeAI(getGeminiApiKey());
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = genAI.getGenerativeModel({ model: getGeminiModel() });
 
     const result = await model.generateContent(prompt);
     const response = result.response;

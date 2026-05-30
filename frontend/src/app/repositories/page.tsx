@@ -5,6 +5,11 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import { fetchApi } from "@/lib/api";
 import { ArrowUpRight, Lock, Unlock, GitBranch } from "lucide-react";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { ListItemSkeleton } from "@/components/ui/Skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorState } from "@/components/ui/ErrorState";
+import { staggerContainer, fadeInUp } from "@/lib/motion";
 
 interface RepositoryRecord {
   id: string;
@@ -15,24 +20,8 @@ interface RepositoryRecord {
   created_at?: string;
 }
 
-const easeOut: [number, number, number, number] = [0.16, 1, 0.3, 1];
-
-const container = {
-  hidden: { opacity: 0 },
-  show: {
-    opacity: 1,
-    transition: { staggerChildren: 0.08, delayChildren: 0.1 },
-  },
-};
-
-const item = {
-  hidden: { opacity: 0, y: 20 },
-  show: {
-    opacity: 1,
-    y: 0,
-    transition: { duration: 0.5, ease: easeOut },
-  },
-};
+const container = staggerContainer;
+const item = fadeInUp;
 
 const formatTimestamp = (value?: string | null) => {
   if (!value) {
@@ -44,37 +33,29 @@ const formatTimestamp = (value?: string | null) => {
 export default function RepositoriesPage() {
   const [repositories, setRepositories] = useState<RepositoryRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const appSlug = process.env.NEXT_PUBLIC_GITHUB_APP_SLUG;
   const installUrl = appSlug
     ? `https://github.com/apps/${appSlug}/installations/new`
     : null;
 
+  const load = async () => {
+    try {
+      setError(null);
+      setLoading(true);
+      const data = await fetchApi<RepositoryRecord[]>("/api/repositories");
+      setRepositories(data);
+    } catch {
+      setRepositories([]);
+      setError("Failed to load repositories.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    let active = true;
-
-    const load = async () => {
-      try {
-        const data = await fetchApi<RepositoryRecord[]>("/api/repositories");
-        if (active) {
-          setRepositories(data);
-        }
-      } catch {
-        if (active) {
-          setRepositories([]);
-        }
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
-      }
-    };
-
     load();
-
-    return () => {
-      active = false;
-    };
   }, []);
 
   return (
@@ -82,45 +63,41 @@ export default function RepositoriesPage() {
       variants={container}
       initial="hidden"
       animate="show"
-      className="max-w-6xl mx-auto space-y-6"
+      className="space-y-6"
     >
-      <motion.div variants={item} className="flex flex-col gap-4">
-        <div className="flex items-center justify-between flex-wrap gap-4">
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-kd-text">
-              Repositories
-            </h1>
-            <p className="text-sm text-kd-text-muted mt-1">
-              Manage GitHub repositories connected to Kodeye AI.
-            </p>
-          </div>
-          {installUrl ? (
-            <a
-              href={installUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="btn-primary text-sm"
-            >
+      <PageHeader
+        title="Repositories"
+        description="Manage GitHub repositories connected to Kodeye AI."
+        actions={
+          installUrl ? (
+            <a href={installUrl} target="_blank" rel="noreferrer" className="btn-primary text-sm">
               Install GitHub App
             </a>
-          ) : (
-            <p className="text-xs text-kd-text-muted">
-              Set NEXT_PUBLIC_GITHUB_APP_SLUG to enable installs.
-            </p>
-          )}
-        </div>
-      </motion.div>
+          ) : undefined
+        }
+      />
 
       <motion.div variants={item} className="glass-card p-6">
         {loading ? (
-          <div className="flex items-center gap-3 text-kd-text-muted">
-            <div className="spinner" />
-            <span>Loading repositories...</span>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <ListItemSkeleton />
+            <ListItemSkeleton />
           </div>
+        ) : error ? (
+          <ErrorState message={error} onRetry={() => { setLoading(true); load(); }} />
         ) : repositories.length === 0 ? (
-          <div className="text-sm text-kd-text-muted">
-            No repositories connected yet.
-          </div>
+          <EmptyState
+            icon={GitBranch}
+            title="No repositories yet"
+            description="Install the GitHub App to connect repositories and start AI reviews."
+            action={
+              installUrl ? (
+                <a href={installUrl} target="_blank" rel="noreferrer" className="btn-primary text-sm">
+                  Install GitHub App
+                </a>
+              ) : undefined
+            }
+          />
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {repositories.map((repo) => (

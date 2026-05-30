@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { useAuth } from "@/hooks/useAuth";
@@ -63,15 +64,16 @@ function LoginPageContent() {
   // Handle error from callback
   useEffect(() => {
     const error = searchParams.get("error");
-    if (error) {
+    if (error === "config") {
+      toast.error("Supabase is not configured. Check your .env.local file.");
+    } else if (error) {
       toast.error("Authentication failed. Please try again.");
     }
   }, [searchParams]);
 
-  // Redirect if already authenticated (backup — middleware handles this too)
   useEffect(() => {
     if (!authLoading && user) {
-      router.replace("/dashboard");
+      router.replace("/overview");
     }
   }, [user, authLoading, router]);
 
@@ -112,6 +114,13 @@ function LoginPageContent() {
       />
 
       {/* ── Login Card ───────────────────────────────────── */}
+      <Link
+        href="/"
+        className="absolute top-6 left-6 z-20 text-sm text-kd-text-muted hover:text-kd-text transition-colors"
+      >
+        ← Back to home
+      </Link>
+
       <motion.div
         initial={{ opacity: 0, y: 30, scale: 0.95 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}

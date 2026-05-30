@@ -59,20 +59,33 @@ export function AuthProvider({ children }: AuthProviderProps) {
   );
 
   useEffect(() => {
-    // Get the initial session
-    const getInitialSession = async () => {
-      const {
-        data: { session: initialSession },
-      } = await supabase.auth.getSession();
-
-      setSession(initialSession);
-      setUser(initialSession?.user ?? null);
-
-      if (initialSession?.user) {
-        await fetchProfile(initialSession.user.id);
-      }
-
+    if (
+      !process.env.NEXT_PUBLIC_SUPABASE_URL ||
+      !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    ) {
       setLoading(false);
+      return;
+    }
+
+    const getInitialSession = async () => {
+      try {
+        const {
+          data: { session: initialSession },
+        } = await supabase.auth.getSession();
+
+        setSession(initialSession);
+        setUser(initialSession?.user ?? null);
+
+        if (initialSession?.user) {
+          await fetchProfile(initialSession.user.id);
+        }
+      } catch {
+        setSession(null);
+        setUser(null);
+        setProfile(null);
+      } finally {
+        setLoading(false);
+      }
     };
 
     getInitialSession();

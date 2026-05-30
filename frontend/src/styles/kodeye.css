@@ -222,7 +222,7 @@
   transform: translateY(0) scale(0.99);
 }
 
-.btn-github > * {
+.btn-github>* {
   position: relative;
   z-index: 1;
 }
@@ -258,6 +258,147 @@
   transform: translateY(-2px);
 }
 
+.stat-card-delta {
+  font-size: 0.75rem;
+  font-weight: 500;
+  margin-top: 0.35rem;
+}
+
+.stat-card-delta--positive {
+  color: #22c55e;
+}
+
+.stat-card-delta--negative {
+  color: #ef4444;
+}
+
+.stat-card-delta--neutral {
+  color: #9b9bbf;
+}
+
+.stat-card-delta--amber {
+  color: #f59e0b;
+}
+
+/* ── Overview page ─────────────────────────────────────── */
+.kd-github-account-row {
+  border-left: 3px solid #22c55e;
+}
+
+.kd-connected-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  background: rgba(34, 197, 94, 0.12);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  border-radius: 20px;
+  padding: 4px 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.overview-action-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 11rem;
+  padding: 1.5rem;
+  border-radius: 1rem;
+  border: 1px solid var(--kd-border);
+  background: color-mix(in srgb, var(--kd-card) 80%, transparent);
+  backdrop-filter: blur(16px);
+  transition:
+    border-color 0.25s ease,
+    box-shadow 0.25s ease,
+    transform 0.25s ease;
+}
+
+.overview-action-card:hover {
+  border-color: rgba(124, 58, 237, 0.4);
+  box-shadow: 0 0 24px -6px rgba(124, 58, 237, 0.25);
+  transform: translateY(-2px);
+}
+
+.overview-action-icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.overview-action-icon--purple {
+  background: rgba(124, 58, 237, 0.15);
+  color: #9d5ff5;
+}
+
+.overview-action-icon--green {
+  background: rgba(34, 197, 94, 0.12);
+  color: #22c55e;
+}
+
+.overview-activity-feed {
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.overview-activity-feed::-webkit-scrollbar {
+  width: 6px;
+}
+
+.overview-activity-feed::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+.overview-activity-group {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #9d5ff5;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.5rem;
+  border-radius: 0.5rem;
+  background: rgba(124, 58, 237, 0.08);
+  border: 1px solid rgba(124, 58, 237, 0.2);
+}
+
+.overview-activity-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--kd-border) 80%, transparent);
+  background: color-mix(in srgb, var(--kd-bg) 50%, transparent);
+}
+
+.overview-activity-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 0.35rem;
+  flex-shrink: 0;
+}
+
+.overview-activity-dot--green {
+  background: #22c55e;
+}
+
+.overview-activity-dot--amber {
+  background: #f59e0b;
+}
+
+.overview-activity-dot--red {
+  background: #ef4444;
+}
+
+.overview-activity-dot--muted {
+  background: #5a5a7a;
+}
+
 /* ── Spinner ───────────────────────────────────────────── */
 .spinner {
   width: 20px;
@@ -276,12 +417,10 @@
 
 /* ── Shimmer ───────────────────────────────────────────── */
 .shimmer {
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--kd-card) 60%, transparent) 0%,
-    color-mix(in srgb, var(--kd-surface) 80%, transparent) 50%,
-    color-mix(in srgb, var(--kd-card) 60%, transparent) 100%
-  );
+  background: linear-gradient(90deg,
+      color-mix(in srgb, var(--kd-card) 60%, transparent) 0%,
+      color-mix(in srgb, var(--kd-surface) 80%, transparent) 50%,
+      color-mix(in srgb, var(--kd-card) 60%, transparent) 100%);
   background-size: 200% 100%;
   animation: shimmer 1.5s ease-in-out infinite;
 }
@@ -505,38 +644,78 @@
    ═══════════════════════════════════════════════════════════ */
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+  0% {
+    background-position: 200% 0;
+  }
+
+  100% {
+    background-position: -200% 0;
+  }
 }
 
 @keyframes blob-float-1 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  33% { transform: translate(30px, -40px) scale(1.1); }
-  66% { transform: translate(-20px, 20px) scale(0.9); }
+
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+
+  33% {
+    transform: translate(30px, -40px) scale(1.1);
+  }
+
+  66% {
+    transform: translate(-20px, 20px) scale(0.9);
+  }
 }
 
 @keyframes blob-float-2 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  33% { transform: translate(-40px, 30px) scale(0.95); }
-  66% { transform: translate(25px, -30px) scale(1.05); }
+
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+
+  33% {
+    transform: translate(-40px, 30px) scale(0.95);
+  }
+
+  66% {
+    transform: translate(25px, -30px) scale(1.05);
+  }
 }
 
 @keyframes blob-float-3 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  33% { transform: translate(20px, 40px) scale(1.08); }
-  66% { transform: translate(-30px, -20px) scale(0.92); }
+
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+
+  33% {
+    transform: translate(20px, 40px) scale(1.08);
+  }
+
+  66% {
+    transform: translate(-30px, -20px) scale(0.92);
+  }
 }
 
 @keyframes pulse-glow {
-  0%, 100% {
+
+  0%,
+  100% {
     box-shadow:
       0 0 0 1px color-mix(in srgb, var(--kd-primary) 30%, transparent),
       0 0 20px -5px color-mix(in srgb, var(--kd-glow) 20%, transparent);
   }
+
   50% {
     box-shadow:
       0 0 0 1px color-mix(in srgb, var(--kd-primary) 50%, transparent),
@@ -549,6 +728,7 @@
     opacity: 0;
     transform: translateY(20px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -556,8 +736,15 @@
 }
 
 @keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-10px); }
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-10px);
+  }
 }
 
 /* ── Utility Animations ────────────────────────────────── */
@@ -589,4 +776,244 @@
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--kd-primary);
+}
+
+/* ── AI Review Page Layout ─────────────────────────────── */
+.review-page-layout {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 3.5rem);
+  height: calc(100vh - 3.5rem);
+}
+
+.review-body {
+  flex: 1;
+  min-height: 0;
+}
+
+.review-workspace {
+  min-width: 0;
+}
+
+.review-analytics-panel {
+  position: sticky;
+  top: 0;
+}
+
+.review-analytics-wrap {
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  max-height: calc(100vh - 3.5rem);
+}
+
+@media (max-width: 1279px) {
+  .review-analytics-mobile {
+    display: block;
+  }
+}
+
+/* ── Layout containers ─────────────────────────────────── */
+.kd-container {
+  width: 100%;
+  max-width: 72rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  padding: 0.75rem 1rem;
+  background: var(--kd-primary);
+  color: #fff;
+  font-weight: 600;
+  border-radius: 0 0 0.5rem 0.5rem;
+}
+
+.skip-link:focus {
+  left: 1rem;
+}
+
+/* ── Typography scale ──────────────────────────────────── */
+.kd-heading-1 {
+  font-size: clamp(1.5rem, 4vw, 1.875rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  color: var(--kd-text);
+}
+
+.kd-heading-2 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--kd-text);
+}
+
+.kd-body-muted {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--kd-text-muted);
+}
+
+.kd-caption {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--kd-text-muted);
+}
+
+/* ── Form inputs ───────────────────────────────────────── */
+.kd-input {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  color: var(--kd-text);
+  background: color-mix(in srgb, var(--kd-bg) 60%, transparent);
+  border: 1px solid var(--kd-border);
+  border-radius: 0.625rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.kd-input::placeholder {
+  color: var(--kd-text-muted);
+}
+
+.kd-input:hover {
+  border-color: color-mix(in srgb, var(--kd-primary) 35%, transparent);
+}
+
+.kd-input:focus {
+  outline: none;
+  border-color: var(--kd-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--kd-primary) 25%, transparent);
+}
+
+/* ── Data table (responsive) ───────────────────────────── */
+.kd-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 1rem;
+  border: 1px solid var(--kd-border);
+}
+
+.kd-table {
+  width: 100%;
+  min-width: 640px;
+  font-size: 0.875rem;
+}
+
+.kd-table th {
+  text-align: left;
+  padding: 0.75rem 1rem;
+  font-weight: 600;
+  color: var(--kd-text-muted);
+  background: var(--kd-surface);
+  border-bottom: 1px solid var(--kd-border);
+  position: sticky;
+  top: 0;
+}
+
+.kd-table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--kd-border) 50%, transparent);
+  color: var(--kd-text);
+}
+
+.kd-table tr:hover td {
+  background: color-mix(in srgb, var(--kd-primary) 5%, transparent);
+}
+
+/* ── Settings sections ─────────────────────────────────── */
+.kd-settings-section {
+  padding: 1.5rem;
+  border-radius: 1.25rem;
+  border: 1px solid var(--kd-border);
+  background: color-mix(in srgb, var(--kd-card) 70%, transparent);
+}
+
+.kd-settings-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--kd-border) 40%, transparent);
+}
+
+.kd-settings-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.kd-settings-row:first-of-type {
+  padding-top: 0;
+}
+
+/* ── AI Fix Suggestions ────────────────────────────────── */
+.fix-suggestion-panel {
+  backdrop-filter: blur(8px);
+}
+
+.fix-confidence-badge.fix-confidence-high {
+  background: color-mix(in srgb, var(--kd-success) 18%, transparent);
+  color: var(--kd-success);
+}
+
+.fix-confidence-badge.fix-confidence-medium {
+  background: color-mix(in srgb, var(--kd-warning) 18%, transparent);
+  color: var(--kd-warning);
+}
+
+.fix-confidence-badge.fix-confidence-low {
+  background: color-mix(in srgb, var(--kd-critical) 15%, transparent);
+  color: var(--kd-critical);
+}
+
+.fix-diff-view {
+  background: color-mix(in srgb, var(--kd-bg) 80%, transparent);
+}
+
+.fix-diff-header {
+  background: color-mix(in srgb, var(--kd-surface) 90%, transparent);
+}
+
+.fix-diff-line {
+  line-height: 1.45;
+  padding: 0.125rem 0;
+}
+
+.fix-diff-del {
+  background: color-mix(in srgb, var(--kd-critical) 12%, transparent);
+}
+
+.fix-diff-add {
+  background: color-mix(in srgb, var(--kd-success) 12%, transparent);
+}
+
+.fix-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.65rem;
+  font-weight: 600;
+  border-radius: 0.5rem;
+  border: 1px solid var(--kd-border);
+  color: var(--kd-text-muted);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.fix-action-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--kd-primary) 12%, transparent);
+  color: var(--kd-text);
+}
+
+.fix-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }

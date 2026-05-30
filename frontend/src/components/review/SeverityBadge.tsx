@@ -11,19 +11,34 @@ const config: Record<string, { emoji: string; label: string; className: string }
     label: "Critical",
     className: "severity-badge-critical",
   },
-  warning: {
-    emoji: "🟡",
-    label: "Warning",
+  high: {
+    emoji: "🟠",
+    label: "High",
     className: "severity-badge-warning",
   },
-  suggestion: {
-    emoji: "🟣",
-    label: "Suggestion",
+  warning: {
+    emoji: "🟠",
+    label: "High",
+    className: "severity-badge-warning",
+  },
+  medium: {
+    emoji: "🟡",
+    label: "Medium",
     className: "severity-badge-suggestion",
+  },
+  suggestion: {
+    emoji: "🟡",
+    label: "Medium",
+    className: "severity-badge-suggestion",
+  },
+  low: {
+    emoji: "🟢",
+    label: "Low",
+    className: "severity-badge-info",
   },
   info: {
     emoji: "🔵",
-    label: "Info",
+    label: "Low",
     className: "severity-badge-info",
   },
 };

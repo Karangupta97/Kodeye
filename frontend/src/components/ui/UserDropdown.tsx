@@ -121,7 +121,7 @@ export function UserDropdown() {
             {/* Menu Items */}
             <div className="py-1.5">
               <Link
-                href="/dashboard"
+                href="/overview"
                 onClick={() => setIsOpen(false)}
                 className="dropdown-item"
               >

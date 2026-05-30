@@ -10,6 +10,7 @@ export const getRepositories = async (_req: Request, res: Response) => {
 };
 
 export const getRepository = async (req: Request, res: Response) => {
-  const repository = await getRepositoryById(req.params.id);
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const repository = await getRepositoryById(id);
   res.json({ data: repository });
 };

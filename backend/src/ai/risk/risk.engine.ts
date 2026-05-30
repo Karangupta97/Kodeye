@@ -123,6 +123,16 @@ export const calculateRiskScores = (
     }
   }
 
+  // No issues → no inflated risk from file/size heuristics alone
+  if (issues.length === 0) {
+    return {
+      overallRisk: 0,
+      securityRisk: 0,
+      performanceRisk: 0,
+      maintainability: 0,
+    };
+  }
+
   // ── Size-based modifiers ─────────────────────────────
   const totalChanges = totalAdditions + totalDeletions;
   if (totalChanges > 1000) {
