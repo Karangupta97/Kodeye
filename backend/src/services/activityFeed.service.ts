@@ -155,6 +155,48 @@ const REAL_REVIEW_EVENT_TYPES = new Set([
   "github_comment_posted",
 ]);
 
+/** Supabase may return nested FK rows as objects or single-element arrays. */
+const firstRelation = <T>(value: T | T[] | null | undefined): T | null => {
+  if (value == null) return null;
+  return Array.isArray(value) ? (value[0] ?? null) : value;
+};
+
+const normalizeReviewEventRow = (row: {
+  id: string;
+  event_type: string;
+  label: string;
+  detail?: string | null;
+  created_at?: string;
+  pull_requests?: unknown;
+}) => {
+  const pr = firstRelation(
+    row.pull_requests as
+      | {
+          pr_number: number;
+          title?: string;
+          repositories?: { repo_name?: string; full_name?: string } | null;
+        }
+      | {
+          pr_number: number;
+          title?: string;
+          repositories?: { repo_name?: string; full_name?: string } | null;
+        }[]
+      | null
+  );
+  const repo = pr ? firstRelation(pr.repositories) : null;
+
+  return {
+    id: row.id,
+    event_type: row.event_type,
+    label: row.label,
+    detail: row.detail,
+    created_at: row.created_at,
+    pull_requests: pr
+      ? { pr_number: pr.pr_number, title: pr.title, repositories: repo }
+      : null,
+  };
+};
+
 const parseReviewEvent = (row: {
   id: string;
   event_type: string;
@@ -262,7 +304,7 @@ export const getActivityFeed = async (limit = 30) => {
     .filter((i): i is ActivityFeedItem => i !== null);
 
   const reviewItems = (reviewResult.data || [])
-    .map(parseReviewEvent)
+    .map((row) => parseReviewEvent(normalizeReviewEventRow(row)))
     .filter((i): i is ActivityFeedItem => i !== null);
 
   const merged = [...webhookItems, ...reviewItems].sort(
