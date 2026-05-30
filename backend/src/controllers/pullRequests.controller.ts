@@ -9,13 +9,27 @@ import {
   listPullRequestFiles,
   listPullRequestFileCounts,
 } from "../services/pullRequestFiles.service";
+import { countReviewsByPR } from "../services/aiReviews.service";
+import { getRiskScoresForPRs } from "../services/riskScores.service";
+import { listReviewsByPR } from "../services/aiReviews.service";
+import { getRiskScoreByPR } from "../services/riskScores.service";
 import { logger } from "../utils/logger";
 
 const toPullRequestResponse = (
   pullRequest: any,
   repository: any,
-  issueCount: number,
-  aiReviewed: boolean
+  issueCounts: {
+    total: number;
+    critical: number;
+    warning: number;
+    suggestion: number;
+  },
+  riskScore: {
+    overall_score: number;
+    security_score: number;
+    performance_score: number;
+    maintainability_score: number;
+  } | null
 ) => ({
   id: pullRequest.id,
   title: pullRequest.title,
@@ -27,15 +41,23 @@ const toPullRequestResponse = (
   created_at: pullRequest.created_at,
   repository: repository || null,
   repository_name: repository?.repo_name || null,
-  risk_score: Math.min(100, 30 + issueCount * 10),
+  risk_score: riskScore?.overall_score ?? 0,
+  risk_scores: riskScore
+    ? {
+        overall: riskScore.overall_score,
+        security: riskScore.security_score,
+        performance: riskScore.performance_score,
+        maintainability: riskScore.maintainability_score,
+      }
+    : null,
   issue_counts: {
-    total: issueCount,
-    critical: 0,
-    high: issueCount,
-    medium: 0,
+    total: issueCounts.total,
+    critical: issueCounts.critical,
+    high: issueCounts.warning,
+    medium: issueCounts.suggestion,
     low: 0,
   },
-  ai_review_status: aiReviewed ? "completed" : "pending",
+  ai_review_status: issueCounts.total > 0 || riskScore ? "completed" : "pending",
 });
 
 export const getPullRequests = async (req: Request, res: Response) => {
@@ -56,18 +78,25 @@ export const getPullRequests = async (req: Request, res: Response) => {
     }
 
     const repositories = await listRepositories();
-
     const repoMap = new Map(repositories.map((repo) => [repo.id, repo]));
-    const fileCountByPr = await listPullRequestFileCounts(
-      pullRequests.map((pullRequest) => pullRequest.id)
-    );
+
+    const prIds = pullRequests.map((pr) => pr.id);
+    const [reviewCounts, riskScores] = await Promise.all([
+      countReviewsByPR(prIds),
+      getRiskScoresForPRs(prIds),
+    ]);
 
     const enriched = pullRequests.map((pullRequest) =>
       toPullRequestResponse(
         pullRequest,
         repoMap.get(pullRequest.repo_id) || null,
-        fileCountByPr.get(pullRequest.id) || 0,
-        (fileCountByPr.get(pullRequest.id) || 0) > 0
+        reviewCounts.get(pullRequest.id) || {
+          total: 0,
+          critical: 0,
+          warning: 0,
+          suggestion: 0,
+        },
+        riskScores.get(pullRequest.id) || null
       )
     );
 
@@ -92,15 +121,29 @@ export const getPullRequest = async (req: Request, res: Response) => {
     const repoMap = new Map(repositories.map((repo) => [repo.id, repo]));
     const files = await listPullRequestFiles(id);
 
+    const [reviews, riskScore] = await Promise.all([
+      listReviewsByPR(id),
+      getRiskScoreByPR(id),
+    ]);
+
+    const issueCounts = {
+      total: reviews.length,
+      critical: reviews.filter((r: any) => r.severity === "critical").length,
+      warning: reviews.filter((r: any) => r.severity === "warning").length,
+      suggestion: reviews.filter((r: any) => r.severity === "suggestion").length,
+    };
+
     res.json({
       data: {
         ...toPullRequestResponse(
           pullRequest,
           repoMap.get(pullRequest.repo_id) || null,
-          files.length,
-          files.length > 0
+          issueCounts,
+          riskScore
         ),
         files,
+        reviews,
+        risk_score_detail: riskScore || null,
       },
     });
   } catch (error) {

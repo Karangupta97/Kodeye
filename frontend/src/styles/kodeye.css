@@ -18,6 +18,8 @@
   --kd-critical: #EF4444;
   --kd-warning: #F59E0B;
   --kd-success: #22C55E;
+  --kd-info: #3B82F6;
+  --kd-suggestion: #8B5CF6;
   --kd-star: #FFFFFF;
   --kd-blob-1: #7C3AED;
   --kd-blob-2: #A855F7;
@@ -40,6 +42,8 @@
   --kd-critical: #EF4444;
   --kd-warning: #F59E0B;
   --kd-success: #22C55E;
+  --kd-info: #3B82F6;
+  --kd-suggestion: #8B5CF6;
   --kd-star: #7C3AED;
   --kd-blob-1: #8B5CF6;
   --kd-blob-2: #A78BFA;
@@ -341,6 +345,159 @@
   height: 1px;
   background: var(--kd-border);
   margin: 0.25rem 0;
+}
+
+/* ── Severity Badges ──────────────────────────────────── */
+.severity-badge-critical {
+  background: color-mix(in srgb, var(--kd-critical) 15%, transparent);
+  color: var(--kd-critical);
+  border: 1px solid color-mix(in srgb, var(--kd-critical) 30%, transparent);
+}
+
+.severity-badge-warning {
+  background: color-mix(in srgb, var(--kd-warning) 15%, transparent);
+  color: var(--kd-warning);
+  border: 1px solid color-mix(in srgb, var(--kd-warning) 30%, transparent);
+}
+
+.severity-badge-suggestion {
+  background: color-mix(in srgb, var(--kd-suggestion) 15%, transparent);
+  color: var(--kd-suggestion);
+  border: 1px solid color-mix(in srgb, var(--kd-suggestion) 30%, transparent);
+}
+
+.severity-badge-info {
+  background: color-mix(in srgb, var(--kd-info) 15%, transparent);
+  color: var(--kd-info);
+  border: 1px solid color-mix(in srgb, var(--kd-info) 30%, transparent);
+}
+
+/* ── Finding Card ─────────────────────────────────────── */
+.finding-card {
+  background: color-mix(in srgb, var(--kd-card) 70%, transparent);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--kd-border);
+  border-radius: 1rem;
+  padding: 1.25rem;
+  transition: all 0.3s ease;
+}
+
+.finding-card:hover {
+  border-color: color-mix(in srgb, var(--kd-primary) 40%, transparent);
+  box-shadow: 0 4px 24px -8px color-mix(in srgb, var(--kd-glow) 15%, transparent);
+  transform: translateY(-1px);
+}
+
+/* ── Diff Viewer ──────────────────────────────────────── */
+.diff-viewer {
+  background: color-mix(in srgb, #000000 80%, var(--kd-card));
+  font-size: 0.75rem;
+}
+
+.diff-viewer-header {
+  background: color-mix(in srgb, var(--kd-card) 90%, transparent);
+}
+
+.diff-viewer-body {
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.diff-line {
+  border-bottom: 1px solid color-mix(in srgb, var(--kd-border) 20%, transparent);
+}
+
+.diff-line:hover {
+  background: color-mix(in srgb, var(--kd-primary) 5%, transparent);
+}
+
+.diff-line-num {
+  color: color-mix(in srgb, var(--kd-text-muted) 60%, transparent);
+  font-size: 0.65rem;
+  user-select: none;
+  vertical-align: top;
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+}
+
+.diff-line-indicator {
+  color: var(--kd-text-muted);
+  font-size: 0.65rem;
+  vertical-align: top;
+  padding-top: 0.25rem;
+}
+
+.diff-line-content {
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+  color: var(--kd-text);
+}
+
+.diff-line-add {
+  background: color-mix(in srgb, var(--kd-success) 8%, transparent);
+}
+
+.diff-line-add .diff-line-indicator {
+  color: var(--kd-success);
+}
+
+.diff-line-del {
+  background: color-mix(in srgb, var(--kd-critical) 8%, transparent);
+}
+
+.diff-line-del .diff-line-indicator {
+  color: var(--kd-critical);
+}
+
+.diff-line-hunk {
+  background: color-mix(in srgb, var(--kd-info) 8%, transparent);
+}
+
+.diff-line-hunk td {
+  color: var(--kd-info);
+  font-style: italic;
+  padding: 0.375rem 0.5rem;
+}
+
+/* ── Risk Bar ─────────────────────────────────────────── */
+.risk-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--kd-border);
+  overflow: hidden;
+}
+
+.risk-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 1s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ── Category Filter Buttons ──────────────────────────── */
+.filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border-radius: 0.5rem;
+  border: 1px solid var(--kd-border);
+  background: transparent;
+  color: var(--kd-text-muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.filter-btn:hover {
+  border-color: color-mix(in srgb, var(--kd-primary) 40%, transparent);
+  color: var(--kd-text);
+}
+
+.filter-btn-active {
+  background: color-mix(in srgb, var(--kd-primary) 15%, transparent);
+  border-color: color-mix(in srgb, var(--kd-primary) 50%, transparent);
+  color: var(--kd-glow);
 }
 
 /* ═══════════════════════════════════════════════════════════

@@ -13,7 +13,10 @@ import {
   Star,
   ArrowUpRight,
   CheckCircle2,
+  AlertTriangle,
+  Bug,
 } from "lucide-react";
+import RiskScoreRing from "@/components/review/RiskScoreRing";
 
 /* ── Animation Variants ────────────────────────────────── */
 const container = {
@@ -39,6 +42,9 @@ interface Metrics {
   repositories: number;
   pullRequests: number;
   webhookEvents: number;
+  aiReviews: number;
+  criticalIssues: number;
+  securityFindings: number;
 }
 
 interface RepositorySummary {
@@ -208,28 +214,52 @@ export default function DashboardPage() {
         <StatCard
           icon={GitBranch}
           label="Repositories"
-          value={metrics ? metrics.repositories.toString() : "N/A"}
+          value={metrics ? (metrics.repositories ?? 0).toString() : "—"}
           color="var(--kd-primary)"
         />
         <StatCard
           icon={Shield}
-          label="Vulnerabilities Found"
-          value="N/A"
+          label="Security Findings"
+          value={metrics ? (metrics.securityFindings ?? 0).toString() : "—"}
           color="var(--kd-critical)"
         />
         <StatCard
           icon={Activity}
           label="PRs Reviewed"
-          value={metrics ? metrics.pullRequests.toString() : "N/A"}
+          value={metrics ? (metrics.pullRequests ?? 0).toString() : "—"}
           color="var(--kd-success)"
         />
         <StatCard
-          icon={Star}
-          label="AI Reviews"
-          value={metrics ? metrics.webhookEvents.toString() : "N/A"}
+          icon={Bug}
+          label="Issues Found"
+          value={metrics ? (metrics.aiReviews ?? 0).toString() : "—"}
           color="var(--kd-warning)"
         />
       </motion.div>
+
+      {/* ── Critical Issues Overview ─────────────────────── */}
+      {metrics && metrics.criticalIssues > 0 && (
+        <motion.div
+          variants={item}
+          className="glass-card p-5 border-l-4"
+          style={{ borderLeftColor: "var(--kd-critical)" }}
+        >
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-kd-critical" />
+            <div>
+              <p className="text-sm font-semibold text-kd-text">
+                {metrics.criticalIssues} Critical Issue{metrics.criticalIssues !== 1 ? "s" : ""} Detected
+              </p>
+              <p className="text-xs text-kd-text-muted">
+                Review your pull requests for security vulnerabilities and critical bugs.
+              </p>
+            </div>
+            <Link href="/pull-requests" className="ml-auto btn-ghost text-xs">
+              View PRs
+            </Link>
+          </div>
+        </motion.div>
+      )}
 
       {/* ── Connected Account ────────────────────────────── */}
       <motion.div variants={item} className="glass-card p-6">
@@ -334,7 +364,7 @@ export default function DashboardPage() {
                 Live Activity Feed
               </h3>
               <p className="text-xs text-kd-text-muted">
-                Recent webhook events and sync activity.
+                Recent webhook events and AI review activity.
               </p>
             </div>
             <span className="text-xs text-kd-text-muted">
@@ -352,14 +382,23 @@ export default function DashboardPage() {
                   key={log.id}
                   className="flex items-center justify-between rounded-xl border border-kd-border bg-kd-bg/40 px-4 py-3"
                 >
-                  <div>
-                    <p className="text-sm font-semibold text-kd-text">
-                      {log.event_type}
-                      {log.action ? ` - ${log.action}` : ""}
-                    </p>
-                    <p className="text-xs text-kd-text-muted">
-                      {log.repository || "Repository sync"}
-                    </p>
+                  <div className="flex items-center gap-3">
+                    <div className={`w-2 h-2 rounded-full shrink-0 ${
+                      log.event_type === "comment_posted"
+                        ? "bg-kd-success"
+                        : log.event_type === "pull_request"
+                          ? "bg-kd-primary"
+                          : "bg-kd-text-muted"
+                    }`} />
+                    <div>
+                      <p className="text-sm font-semibold text-kd-text">
+                        {log.event_type}
+                        {log.action ? ` - ${log.action}` : ""}
+                      </p>
+                      <p className="text-xs text-kd-text-muted">
+                        {log.repository || "Repository sync"}
+                      </p>
+                    </div>
                   </div>
                   <span className="text-xs text-kd-text-muted">
                     {formatTimestamp(log.created_at)}

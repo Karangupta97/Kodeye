@@ -8,6 +8,14 @@ export const env = {
   frontendUrl: process.env.FRONTEND_URL || "http://localhost:3000",
 };
 
+export const getGeminiApiKey = (): string => {
+  return requireEnv("GEMINI_API_KEY");
+};
+
+export const getOpenAIApiKey = (): string | null => {
+  return process.env.OPENAI_API_KEY || null;
+};
+
 export const requireEnv = (key: string): string => {
   const value = process.env[key];
   if (!value) {
@@ -55,18 +63,52 @@ export const getGithubPrivateKey = (): string => {
         .trim();
     }
 
-    const keyObject = crypto.createPrivateKey({
-      key: decodedBuffer,
-      format: "der",
-      type: "pkcs8",
-    });
-    return keyObject
-      .export({ type: "pkcs8", format: "pem" })
-      .toString()
-      .trim();
+    // Try PKCS8 DER first
+    try {
+      const keyObject = crypto.createPrivateKey({
+        key: decodedBuffer,
+        format: "der",
+        type: "pkcs8",
+      });
+      return keyObject
+        .export({ type: "pkcs8", format: "pem" })
+        .toString()
+        .trim();
+    } catch {
+      // Not PKCS8 — try PKCS1 (traditional RSA)
+    }
+
+    // Try PKCS1 DER (traditional RSA private key — starts with MIIEpA...)
+    try {
+      const keyObject = crypto.createPrivateKey({
+        key: decodedBuffer,
+        format: "der",
+        type: "pkcs1",
+      });
+      return keyObject
+        .export({ type: "pkcs8", format: "pem" })
+        .toString()
+        .trim();
+    } catch {
+      // Not PKCS1 either
+    }
+
+    // Last resort: wrap in PEM header/footer and try
+    const pemWrapped = `-----BEGIN RSA PRIVATE KEY-----\n${normalized.match(/.{1,64}/g)?.join("\n")}\n-----END RSA PRIVATE KEY-----`;
+    try {
+      const keyObject = crypto.createPrivateKey(pemWrapped);
+      return keyObject
+        .export({ type: "pkcs8", format: "pem" })
+        .toString()
+        .trim();
+    } catch {
+      // All strategies failed
+    }
   } catch (_error) {
-    throw new Error(
-      "GITHUB_PRIVATE_KEY is invalid. Provide a valid PEM private key, escaped PEM, or base64-encoded PKCS8 key."
-    );
+    // outer try failed
   }
+
+  throw new Error(
+    "GITHUB_PRIVATE_KEY is invalid. Provide a valid PEM private key, escaped PEM, or base64-encoded PKCS1/PKCS8 key."
+  );
 };

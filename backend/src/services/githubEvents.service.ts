@@ -1,4 +1,3 @@
-import { getFirstAddedLine } from "../utils/diff";
 import { logger } from "../utils/logger";
 import {
   upsertRepository,
@@ -11,9 +10,7 @@ import {
   PullRequestFileRecord,
 } from "./pullRequestFiles.service";
 import { logWebhookEvent } from "./webhookLogs.service";
-import { postInlineComment } from "../github/comment.service";
 import {
-  getPullRequest,
   getPullRequestDiff,
   getPullRequestFiles,
 } from "../github/pr.service";
@@ -219,68 +216,10 @@ export const handlePullRequestEvent = async (payload: any) => {
     });
   }
 
-  const commentTarget = files.find((file: any) => file.patch);
-  if (!commentTarget || !commentTarget.patch) {
-    logger.info("No patch found for inline comment");
-    return;
-  }
-
-  if (!pullRequest.head?.sha) {
-    logger.warn("Missing pull request head SHA for inline comment");
-    return;
-  }
-
-  const firstLine = getFirstAddedLine(commentTarget.patch);
-  if (!firstLine || firstLine.newLine === null) {
-    logger.info("No added line found for inline comment");
-    return;
-  }
-
-  const commentBody =
-    "Kodeye Test Review\n\nWebhook + PR integration successful.\n\nDetected changed code on this line.";
-
-  try {
-    const comment = await postInlineComment({
-      installationId,
-      owner,
-      repo,
-      pullNumber: pullRequest.number,
-      commitId: pullRequest.head.sha,
-      path: commentTarget.filename,
-      line: firstLine.newLine,
-      body: commentBody,
-    });
-
-    await logWebhookEvent({
-      event_type: "comment_posted",
-      action: "created",
-      repository: repository.full_name,
-      payload: {
-        pull_request: pullRequest.number,
-        comment_id: comment.id,
-        path: commentTarget.filename,
-        line: firstLine.newLine,
-        url: comment.html_url,
-      },
-    });
-  } catch (error) {
-    logger.error("Failed to post inline comment", {
-      error: (error as Error).message,
-      pullRequest: pullRequest.number,
-    });
-  }
-
-  try {
-    await getPullRequest({
-      installationId,
-      owner,
-      repo,
-      pullNumber: pullRequest.number,
-    });
-  } catch (error) {
-    logger.error("Failed to fetch pull request details", {
-      error: (error as Error).message,
-      pullRequest: pullRequest.number,
-    });
-  }
+  logger.info("Pull request event handling complete — awaiting manual AI review trigger", {
+    deliveryId,
+    pullRequestId: prRecord.id,
+    prNumber: pullRequest.number,
+  });
 };
+
