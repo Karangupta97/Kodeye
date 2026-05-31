@@ -5,9 +5,18 @@ import {
   listRepositories,
 } from "../services/repositories.service";
 import { ResourceNotFoundError } from "../utils/ownership";
+import { cached } from "../utils/cache";
+
+const REPOS_TTL_MS = 60_000;
 
 export const getRepositories = async (req: Request, res: Response) => {
-  const repositories = await listRepositories(getAuthedUserId(req));
+  const userId = getAuthedUserId(req);
+  const timer = req.timer!;
+
+  const repositories = await timer.timeDatabase("listRepositories", () =>
+    cached(`repos:${userId}`, REPOS_TTL_MS, () => listRepositories(userId))
+  );
+
   res.json({ data: repositories });
 };
 

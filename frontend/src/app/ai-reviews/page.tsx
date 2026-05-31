@@ -1,57 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { fetchApi } from "@/lib/api";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { ListItemSkeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { Badge } from "@/components/ui/Badge";
 import { staggerContainer, fadeInUp } from "@/lib/motion";
-import {
-  Sparkles,
-  ArrowUpRight,
-  ShieldAlert,
-} from "lucide-react";
-
-interface PullRequestRecord {
-  id: string;
-  pr_number: number;
-  title: string;
-  author: string;
-  author_avatar_url: string;
-  status: string;
-  created_at: string;
-  risk_score: number;
-  ai_review_status: "completed" | "pending";
-  issue_counts: { total: number; critical: number };
-  repository: { full_name: string } | null;
-}
+import { Sparkles, ArrowUpRight, ShieldAlert } from "lucide-react";
+import { usePullRequests } from "@/hooks/useApiQueries";
 
 export default function AIReviewsPage() {
-  const [pullRequests, setPullRequests] = useState<PullRequestRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = async () => {
-    try {
-      setError(null);
-      setLoading(true);
-      const data = await fetchApi<PullRequestRecord[]>("/api/pull-requests");
-      setPullRequests(data);
-    } catch {
-      setPullRequests([]);
-      setError("Failed to load AI reviews.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    load();
-  }, []);
+  const { data: pullRequests = [], isLoading, error, refetch } = usePullRequests();
 
   const reviewed = pullRequests.filter((pr) => pr.ai_review_status === "completed");
   const pending = pullRequests.filter((pr) => pr.ai_review_status !== "completed");
@@ -89,13 +50,13 @@ export default function AIReviewsPage() {
       </motion.div>
 
       <motion.div variants={fadeInUp} className="glass-card p-6">
-        {loading ? (
+        {isLoading ? (
           <div className="space-y-4">
             <ListItemSkeleton />
             <ListItemSkeleton />
           </div>
         ) : error ? (
-          <ErrorState message={error} onRetry={load} />
+          <ErrorState message="Failed to load AI reviews." onRetry={() => refetch()} />
         ) : pullRequests.length === 0 ? (
           <EmptyState
             icon={Sparkles}
@@ -126,7 +87,7 @@ export default function AIReviewsPage() {
                         {pr.title}
                       </h2>
                       <p className="text-xs text-kd-text-muted mt-0.5">
-                        {pr.repository?.full_name} · #{pr.pr_number}
+                        {pr.repository_name} · #{pr.pr_number}
                       </p>
                     </div>
                   </div>

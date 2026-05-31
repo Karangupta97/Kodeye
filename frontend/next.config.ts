@@ -15,6 +15,13 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  experimental: {
+    optimizePackageImports: [
+      "lucide-react",
+      "framer-motion",
+      "react-syntax-highlighter",
+    ],
+  },
 };
 
 export default nextConfig;

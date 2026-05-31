@@ -1,28 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { fetchApi } from "@/lib/api";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { staggerContainer, fadeInUp } from "@/lib/motion";
 import { BarChart3, GitBranch, Activity } from "lucide-react";
-
-interface Metrics {
-  repositories: number;
-  pullRequests: number;
-  webhookEvents: number;
-}
+import { useMetrics } from "@/hooks/useApiQueries";
 
 export default function ReportsPage() {
-  const [metrics, setMetrics] = useState<Metrics | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetchApi<Metrics>("/api/metrics")
-      .then(setMetrics)
-      .catch(() => setError("Failed to load report metrics."));
-  }, []);
+  const { data: metrics, error, refetch } = useMetrics();
 
   return (
     <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-6">
@@ -32,7 +18,7 @@ export default function ReportsPage() {
       />
 
       {error ? (
-        <ErrorState message={error} />
+        <ErrorState message="Failed to load report metrics." onRetry={() => refetch()} />
       ) : (
         <motion.div variants={fadeInUp} className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {[

@@ -4,16 +4,14 @@ import {
   listPullRequests,
   syncPullRequestsFromGithub,
 } from "../services/pullRequests.service";
-import { listRepositories } from "../services/repositories.service";
-import {
-  listPullRequestFiles,
-} from "../services/pullRequestFiles.service";
-import { countReviewsByPR } from "../services/aiReviews.service";
-import { getRiskScoresForPRs } from "../services/riskScores.service";
-import { listReviewsByPR } from "../services/aiReviews.service";
-import { getRiskScoreByPR } from "../services/riskScores.service";
+import { listRepositories, getRepositoriesByIds } from "../services/repositories.service";
+import { listPullRequestFiles } from "../services/pullRequestFiles.service";
+import { countReviewsByPR, listReviewsByPR } from "../services/aiReviews.service";
+import { getRiskScoresForPRs, getRiskScoreByPR } from "../services/riskScores.service";
 import { logger } from "../utils/logger";
 import { requirePullRequest, ResourceNotFoundError } from "../utils/ownership";
+import { cached } from "../utils/cache";
+import type { RequestTimer } from "../utils/timing";
 
 const toPullRequestResponse = (
   pullRequest: any,
@@ -60,7 +58,39 @@ const toPullRequestResponse = (
   ai_review_status: issueCounts.total > 0 || riskScore ? "completed" : "pending",
 });
 
+const buildEnrichedPullRequests = async (
+  pullRequests: Array<{ id: string; repo_id: string } & Record<string, unknown>>,
+  repoMap: Map<string, unknown>,
+  prIds: string[],
+  userId: string,
+  timer: RequestTimer
+) => {
+  const [reviewCounts, riskScores] = await timer.timeDatabase(
+    "enrichPullRequests",
+    () =>
+      Promise.all([
+        countReviewsByPR(prIds, userId),
+        getRiskScoresForPRs(prIds, userId),
+      ])
+  );
+
+  return pullRequests.map((pullRequest) =>
+    toPullRequestResponse(
+      pullRequest,
+      repoMap.get(pullRequest.repo_id) || null,
+      reviewCounts.get(pullRequest.id) || {
+        total: 0,
+        critical: 0,
+        warning: 0,
+        suggestion: 0,
+      },
+      riskScores.get(pullRequest.id) || null
+    )
+  );
+};
+
 export const getPullRequests = async (req: Request, res: Response) => {
+  const timer = req.timer!;
   try {
     const repoId = req.query.repoId as string | undefined;
     const forceSync = req.query.sync === "1";
@@ -72,35 +102,45 @@ export const getPullRequests = async (req: Request, res: Response) => {
       userId,
     });
 
-    let pullRequests = await listPullRequests(userId, repoId);
+    let pullRequests = await timer.timeDatabase("listPullRequests", () =>
+      listPullRequests(userId, repoId)
+    );
     if (forceSync) {
-      const syncResult = await syncPullRequestsFromGithub(userId, repoId);
+      const syncResult = await timer.timeGithub("syncPullRequests", () =>
+        syncPullRequestsFromGithub(userId, repoId)
+      );
       logger.info("Pull request sync completed", syncResult);
-      pullRequests = await listPullRequests(userId, repoId);
+      pullRequests = await timer.timeDatabase("listPullRequestsAfterSync", () =>
+        listPullRequests(userId, repoId)
+      );
     }
 
-    const repositories = await listRepositories(userId);
+    const repoIds = [...new Set(pullRequests.map((pr) => pr.repo_id))];
+    const repositories = await timer.timeDatabase("getRepositoriesByIds", () =>
+      getRepositoriesByIds(repoIds, userId)
+    );
     const repoMap = new Map(repositories.map((repo) => [repo.id, repo]));
 
     const prIds = pullRequests.map((pr) => pr.id);
-    const [reviewCounts, riskScores] = await Promise.all([
-      countReviewsByPR(prIds, userId),
-      getRiskScoresForPRs(prIds, userId),
-    ]);
+    const cacheKey = `pull-requests:${userId}:${repoId || "all"}:${forceSync ? "sync" : "list"}`;
 
-    const enriched = pullRequests.map((pullRequest) =>
-      toPullRequestResponse(
-        pullRequest,
-        repoMap.get(pullRequest.repo_id) || null,
-        reviewCounts.get(pullRequest.id) || {
-          total: 0,
-          critical: 0,
-          warning: 0,
-          suggestion: 0,
-        },
-        riskScores.get(pullRequest.id) || null
-      )
-    );
+    const enriched = forceSync
+      ? await buildEnrichedPullRequests(
+          pullRequests,
+          repoMap,
+          prIds,
+          userId,
+          timer
+        )
+      : await cached(cacheKey, 20_000, () =>
+          buildEnrichedPullRequests(
+            pullRequests,
+            repoMap,
+            prIds,
+            userId,
+            timer
+          )
+        );
 
     logger.info("GET /api/pull-requests response", {
       count: enriched.length,
@@ -165,7 +205,9 @@ export const getPullRequestFiles = async (req: Request, res: Response) => {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     await requirePullRequest(id, getAuthedUserId(req));
-    const files = await listPullRequestFiles(id);
+    const includePatch = req.query.includePatch === "1";
+    const filename = req.query.filename as string | undefined;
+    const files = await listPullRequestFiles(id, { includePatch, filename });
     res.json({ data: files });
   } catch (error) {
     if (error instanceof ResourceNotFoundError) {

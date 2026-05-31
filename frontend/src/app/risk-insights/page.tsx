@@ -1,35 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { fetchApi } from "@/lib/api";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { ListItemSkeleton } from "@/components/ui/Skeleton";
 import { staggerContainer, fadeInUp } from "@/lib/motion";
 import { Shield, ArrowUpRight } from "lucide-react";
-
-interface PullRequestRecord {
-  id: string;
-  pr_number: number;
-  title: string;
-  risk_score: number;
-  issue_counts: { critical: number; total: number };
-  repository: { repo_name: string } | null;
-}
+import { usePullRequests } from "@/hooks/useApiQueries";
 
 export default function RiskInsightsPage() {
-  const [prs, setPrs] = useState<PullRequestRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetchApi<PullRequestRecord[]>("/api/pull-requests")
-      .then(setPrs)
-      .catch(() => setError("Failed to load risk data."))
-      .finally(() => setLoading(false));
-  }, []);
+  const { data: prs = [], isLoading, error, refetch } = usePullRequests();
 
   const sorted = [...prs].sort((a, b) => b.risk_score - a.risk_score);
   const avgRisk =
@@ -64,10 +45,10 @@ export default function RiskInsightsPage() {
       </motion.div>
 
       <motion.div variants={fadeInUp} className="glass-card p-6">
-        {loading ? (
+        {isLoading ? (
           <ListItemSkeleton />
         ) : error ? (
-          <ErrorState message={error} onRetry={() => window.location.reload()} />
+          <ErrorState message="Failed to load risk data." onRetry={() => refetch()} />
         ) : sorted.length === 0 ? (
           <p className="text-sm text-kd-text-muted text-center py-8">
             No risk data yet. Run AI reviews on pull requests.
@@ -84,7 +65,7 @@ export default function RiskInsightsPage() {
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-kd-text truncate">{pr.title}</p>
                     <p className="text-xs text-kd-text-muted">
-                      {pr.repository?.repo_name} · #{pr.pr_number}
+                      {pr.repository_name} · #{pr.pr_number}
                     </p>
                   </div>
                 </div>

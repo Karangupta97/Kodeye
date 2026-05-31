@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useAuth } from "@/hooks/useAuth";
-import { fetchApi } from "@/lib/api";
+import { useMetrics, useRepositories } from "@/hooks/useApiQueries";
 import {
   fetchActivityFeed,
   type ActivityFeedItem,
@@ -212,14 +212,14 @@ const formatTimestamp = (value?: string | null) => {
 
 export default function DashboardPage() {
   const { user, profile } = useAuth();
-  const [metrics, setMetrics] = useState<Metrics | null>(null);
-  const [repositories, setRepositories] = useState<RepositorySummary[]>([]);
+  const { data: metrics = null, isLoading: loadingMetrics } = useMetrics();
+  const { data: repositories = [], isLoading: loadingRepos } = useRepositories();
   const [activityItems, setActivityItems] = useState<ActivityFeedItem[]>([]);
   const [activityGroupHeader, setActivityGroupHeader] = useState<string | null>(
     null
   );
-  const [loadingData, setLoadingData] = useState(true);
   const [loadingActivity, setLoadingActivity] = useState(true);
+  const loadingData = loadingMetrics || loadingRepos;
 
   const appSlug = process.env.NEXT_PUBLIC_GITHUB_APP_SLUG;
   const installUrl = appSlug
@@ -253,27 +253,6 @@ export default function DashboardPage() {
   useEffect(() => {
     const active = { current: true };
 
-    const loadData = async () => {
-      try {
-        const [metricsData, repoData] = await Promise.all([
-          fetchApi<Metrics>("/api/metrics"),
-          fetchApi<RepositorySummary[]>("/api/repositories"),
-        ]);
-
-        if (!active.current) return;
-
-        setMetrics(metricsData);
-        setRepositories(repoData);
-      } catch {
-        if (!active.current) return;
-        setMetrics(null);
-        setRepositories([]);
-      } finally {
-        if (active.current) setLoadingData(false);
-      }
-    };
-
-    loadData();
     loadActivity(active);
 
     const interval = setInterval(() => loadActivity(active), 30_000);

@@ -1,16 +1,22 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useCallback, useRef } from "react";
+import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
 import { FileCode, ChevronDown, Search, AlertTriangle } from "lucide-react";
 import type { ReviewBundle } from "@/lib/review-api";
+import { fetchPullRequestFiles } from "@/lib/api";
 import {
   mergeReviewFiles,
   countFindingsByFile,
   getFileLanguage,
 } from "@/lib/review-bundle-utils";
-import DiffViewer from "./DiffViewer";
 import SeverityBadge from "./SeverityBadge";
+
+const DiffViewer = dynamic(() => import("./DiffViewer"), {
+  loading: () => <div className="shimmer h-48 rounded-lg m-4" />,
+  ssr: false,
+});
 
 interface Props {
   bundle: ReviewBundle;
@@ -29,6 +35,36 @@ export default function ReviewFilesPanel({
 }: Props) {
   const [expanded, setExpanded] = useState<string | null>(selectedFile);
   const [fileSearch, setFileSearch] = useState("");
+  const [patchCache, setPatchCache] = useState<Map<string, string>>(new Map());
+  const [loadingPatch, setLoadingPatch] = useState<string | null>(null);
+  const loadedPatches = useRef(new Set<string>());
+
+  const loadPatch = useCallback(
+    async (filename: string) => {
+      if (loadedPatches.current.has(filename)) return;
+      loadedPatches.current.add(filename);
+      setLoadingPatch(filename);
+      try {
+        const files = await fetchPullRequestFiles(bundle.pull_request.id, {
+          includePatch: true,
+          filename,
+        });
+        const match = files.find((f) => f.filename === filename);
+        if (match?.patch) {
+          setPatchCache((prev) => new Map(prev).set(filename, match.patch!));
+        }
+      } finally {
+        setLoadingPatch(null);
+      }
+    },
+    [bundle.pull_request.id]
+  );
+
+  const toggleExpand = (filename: string) => {
+    setExpanded((prev) => (prev === filename ? null : filename));
+    onSelectFile(filename);
+    void loadPatch(filename);
+  };
 
   const files = useMemo(
     () => mergeReviewFiles(bundle.files, bundle.findings),
@@ -75,11 +111,6 @@ export default function ReviewFilesPanel({
       </div>
     );
   }
-
-  const toggleExpand = (filename: string) => {
-    setExpanded((prev) => (prev === filename ? null : filename));
-    onSelectFile(filename);
-  };
 
   return (
     <div className="flex flex-col lg:flex-row gap-4 min-h-0">
@@ -222,22 +253,36 @@ export default function ReviewFilesPanel({
                         ))}
                       </div>
                     )}
-                    {file.patch ? (
-                      <DiffViewer
-                        id={file.id}
-                        filename={file.filename}
-                        patch={file.patch}
-                        comments={comments}
-                      />
-                    ) : (
-                      <div className="p-6 text-sm text-kd-text-muted text-center">
-                        <p>No diff preview stored for this file.</p>
-                        <p className="text-xs mt-2">
-                          Re-sync the PR or open on GitHub to view the full
-                          diff.
-                        </p>
-                      </div>
-                    )}
+                    {(() => {
+                      const patch =
+                        patchCache.get(file.filename) ?? file.patch ?? null;
+                      if (loadingPatch === file.filename && !patch) {
+                        return (
+                          <div className="p-6">
+                            <div className="shimmer h-48 rounded-lg" />
+                          </div>
+                        );
+                      }
+                      if (patch) {
+                        return (
+                          <DiffViewer
+                            id={file.id}
+                            filename={file.filename}
+                            patch={patch}
+                            comments={comments}
+                          />
+                        );
+                      }
+                      return (
+                        <div className="p-6 text-sm text-kd-text-muted text-center">
+                          <p>No diff preview stored for this file.</p>
+                          <p className="text-xs mt-2">
+                            Re-sync the PR or open on GitHub to view the full
+                            diff.
+                          </p>
+                        </div>
+                      );
+                    })()}
                   </motion.div>
                 )}
               </AnimatePresence>

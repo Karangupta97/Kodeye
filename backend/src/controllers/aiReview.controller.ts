@@ -10,7 +10,10 @@ import { listPullRequestFiles } from "../services/pullRequestFiles.service";
 import { listReviewsByPR } from "../services/aiReviews.service";
 import { getRiskScoreByPR } from "../services/riskScores.service";
 import { runAIReview, ReviewRequest } from "../ai/ai.service";
-import { getPullRequest as fetchGHPullRequest, getPullRequestFiles as fetchGHFiles } from "../github/pr.service";
+import {
+  getPullRequest as fetchGHPullRequest,
+  getPullRequestFiles as fetchGHFiles,
+} from "../github/pr.service";
 import {
   setReviewProgress,
   clearReviewProgress,
@@ -18,49 +21,27 @@ import {
   releaseReviewLock,
 } from "../services/reviewProgress.service";
 import { appendReviewEvent } from "../services/reviewEvents.service";
+import { cacheDelete, cacheDeletePrefix } from "../utils/cache";
+import { getReviewProgress } from "../services/reviewProgress.service";
 
-export const triggerAIReview = async (req: Request, res: Response) => {
-  const prId = Array.isArray(req.params.id)
-    ? req.params.id[0]
-    : req.params.id;
-  const userId = getAuthedUserId(req);
+const AGENT_DEFS = [
+  { id: "security", name: "Security Agent" },
+  { id: "bug", name: "Bug Agent" },
+  { id: "performance", name: "Performance Agent" },
+  { id: "style", name: "Code Style Agent" },
+];
 
-  logger.info("AI Review: Trigger requested", { prId, userId });
-
-  if (!tryAcquireReviewLock(prId)) {
-    return res.status(409).json({
-      error: "AI review already in progress for this pull request",
-    });
-  }
-
+export const executeAIReviewPipeline = async (
+  prId: string,
+  userId: string
+) => {
   try {
-    logger.info("AI Review: Step 1 — Fetching pull request from DB", { prId });
     const pullRequest = await requirePullRequest(prId, userId);
-    logger.info("AI Review: Step 1 ✓ — Pull request fetched", {
-      prId,
-      title: pullRequest.title,
-      pr_number: pullRequest.pr_number,
-      repo_id: pullRequest.repo_id,
-    });
-
-    logger.info("AI Review: Step 2 — Fetching repository from DB", { repoId: pullRequest.repo_id });
     const repository = await requireRepository(pullRequest.repo_id, userId);
-    logger.info("AI Review: Step 2 ✓ — Repository fetched", {
-      owner: repository.owner,
-      repo: repository.repo_name,
-      installationId: repository.installation_id,
-    });
 
-    logger.info("AI Review: Step 3 — Fetching PR files from DB", { prId });
     let files = await listPullRequestFiles(prId);
-    logger.info("AI Review: Step 3 ✓ — PR files fetched from DB", {
-      fileCount: files.length,
-      filesWithPatches: files.filter((f: any) => f.patch).length,
-    });
 
-    // Fallback: if no files in DB, fetch directly from GitHub
     if (!files.length) {
-      logger.info("AI Review: Step 3b — No files in DB, fetching from GitHub API");
       try {
         const ghFiles = await fetchGHFiles({
           installationId: repository.installation_id,
@@ -68,7 +49,14 @@ export const triggerAIReview = async (req: Request, res: Response) => {
           repo: repository.repo_name,
           pullNumber: pullRequest.pr_number,
         });
-        files = (ghFiles || []).map((f: any) => ({
+        files = (ghFiles || []).map((f: {
+          filename: string;
+          status: string;
+          additions: number;
+          deletions: number;
+          changes: number;
+          patch?: string;
+        }) => ({
           filename: f.filename,
           status: f.status,
           additions: f.additions,
@@ -76,54 +64,30 @@ export const triggerAIReview = async (req: Request, res: Response) => {
           changes: f.changes,
           patch: f.patch || null,
         }));
-        logger.info("AI Review: Step 3b ✓ — Files fetched from GitHub", {
-          fileCount: files.length,
-          filesWithPatches: files.filter((f: any) => f.patch).length,
-        });
       } catch (ghError) {
-        logger.error("AI Review: Step 3b ✗ — GitHub file fetch failed", {
+        logger.error("AI Review: GitHub file fetch failed", {
+          prId,
           error: (ghError as Error).message,
-          stack: (ghError as Error).stack,
         });
       }
     }
 
     if (!files.length) {
-      logger.warn("AI Review: No files found for PR from any source", { prId });
-      return res.status(400).json({
-        error: "No files found for this pull request. Check your GitHub App private key.",
+      setReviewProgress({
+        prId,
+        state: "failed",
+        message: "No files found for this pull request",
+        progress: 0,
       });
+      return;
     }
 
-    const owner = repository.owner;
-    const repo = repository.repo_name;
-    const installationId = repository.installation_id;
-
-    let commitSha: string;
-    try {
-      logger.info("AI Review: Step 4 — Fetching PR from GitHub API", {
-        owner,
-        repo,
-        prNumber: pullRequest.pr_number,
-        installationId,
-      });
-      const ghPR = await fetchGHPullRequest({
-        installationId,
-        owner,
-        repo,
-        pullNumber: pullRequest.pr_number,
-      });
-      commitSha = ghPR.head.sha;
-      logger.info("AI Review: Step 4 ✓ — GitHub PR fetched", { commitSha });
-    } catch (error) {
-      logger.error("AI Review: Step 4 ✗ — Failed to fetch PR from GitHub", {
-        error: (error as Error).message,
-        stack: (error as Error).stack,
-      });
-      return res.status(500).json({
-        error: "Failed to fetch PR details from GitHub",
-      });
-    }
+    const ghPR = await fetchGHPullRequest({
+      installationId: repository.installation_id,
+      owner: repository.owner,
+      repo: repository.repo_name,
+      pullNumber: pullRequest.pr_number,
+    });
 
     const reviewRequest: ReviewRequest = {
       prId,
@@ -133,37 +97,39 @@ export const triggerAIReview = async (req: Request, res: Response) => {
       prTitle: pullRequest.title,
       prAuthor: pullRequest.author,
       prBranch: pullRequest.branch,
-      commitSha,
+      commitSha: ghPR.head.sha,
       repositoryFullName: repository.full_name,
-      owner,
-      repo,
-      installationId,
-      files: files.map((f: any) => ({
+      owner: repository.owner,
+      repo: repository.repo_name,
+      installationId: repository.installation_id,
+      files: files.map((f: {
+        filename: string;
+        status: string;
+        additions: number;
+        deletions: number;
+        changes: number;
+        patch?: string | null;
+      }) => ({
         filename: f.filename,
         status: f.status,
         additions: f.additions,
         deletions: f.deletions,
         changes: f.changes,
-        patch: f.patch,
+        patch: f.patch ?? null,
       })),
     };
-
-    logger.info("AI Review: Step 5 — Starting AI review pipeline", {
-      prId,
-      fileCount: reviewRequest.files.length,
-    });
 
     setReviewProgress({
       prId,
       state: "preparing_context",
       message: "Preparing Context",
       progress: 10,
-      agents: [
-        { id: "security", name: "Security Agent", status: "pending", findingsCount: 0, executionTimeMs: 0 },
-        { id: "bug", name: "Bug Agent", status: "pending", findingsCount: 0, executionTimeMs: 0 },
-        { id: "performance", name: "Performance Agent", status: "pending", findingsCount: 0, executionTimeMs: 0 },
-        { id: "style", name: "Code Style Agent", status: "pending", findingsCount: 0, executionTimeMs: 0 },
-      ],
+      agents: AGENT_DEFS.map((a) => ({
+        ...a,
+        status: "pending",
+        findingsCount: 0,
+        executionTimeMs: 0,
+      })),
     });
 
     await appendReviewEvent({
@@ -223,49 +189,94 @@ export const triggerAIReview = async (req: Request, res: Response) => {
       state: "completed",
       message: "Completed",
       progress: 100,
-      agents: [
-        { id: "security", name: "Security Agent", status: "completed", findingsCount: result.issues.filter((i) => i.category === "security").length, executionTimeMs: 2100 },
-        { id: "bug", name: "Bug Agent", status: "completed", findingsCount: result.issues.filter((i) => i.category === "bug").length, executionTimeMs: 1800 },
-        { id: "performance", name: "Performance Agent", status: "completed", findingsCount: result.issues.filter((i) => i.category === "performance").length, executionTimeMs: 1650 },
-        { id: "style", name: "Code Style Agent", status: "completed", findingsCount: result.issues.filter((i) => i.category === "style").length, executionTimeMs: 1400 },
-      ],
+      agents: AGENT_DEFS.map((a) => ({
+        ...a,
+        status: "completed",
+        findingsCount: result.issues.filter((i) => i.category === a.id).length,
+        executionTimeMs: 1500,
+      })),
     });
 
-    logger.info("AI Review: Step 6 ✓ — AI review pipeline complete", {
+    cacheDelete(`review-bundle:${userId}:${prId}`);
+    cacheDelete(`metrics:${userId}`);
+    cacheDeletePrefix(`pull-requests:${userId}`);
+
+    logger.info("AI Review pipeline complete", {
       prId,
       issuesFound: result.issues.length,
-      riskScores: result.riskScores,
-      commentsPosted: result.commentsPosted,
       duration: `${result.duration}ms`,
     });
-
-    res.json({
-      data: {
-        issues: result.issues,
-        riskScores: result.riskScores,
-        commentsPosted: result.commentsPosted,
-        duration: result.duration,
-      },
-    });
   } catch (error) {
-    if (error instanceof ResourceNotFoundError) {
-      return res.status(404).json({ error: "Pull request not found" });
-    }
     setReviewProgress({
       prId,
       state: "failed",
       message: (error as Error).message || "AI review failed",
       progress: 0,
     });
-    logger.error("AI Review: Trigger FAILED with exception", {
+    logger.error("AI Review pipeline failed", {
       prId,
       error: (error as Error).message,
-      stack: (error as Error).stack,
     });
-    res.status(500).json({ error: "AI review failed" });
   } finally {
     releaseReviewLock(prId);
     setTimeout(() => clearReviewProgress(prId), 60000);
+  }
+};
+
+export const triggerAIReview = async (req: Request, res: Response) => {
+  const prId = Array.isArray(req.params.id)
+    ? req.params.id[0]
+    : req.params.id;
+  const userId = getAuthedUserId(req);
+  const waitForCompletion = req.query.wait === "1";
+
+  if (!tryAcquireReviewLock(prId)) {
+    return res.status(409).json({
+      error: "AI review already in progress for this pull request",
+    });
+  }
+
+  try {
+    await requirePullRequest(prId, userId);
+
+    setReviewProgress({
+      prId,
+      state: "queued",
+      message: "Review Running",
+      progress: 5,
+    });
+
+    if (waitForCompletion) {
+      await executeAIReviewPipeline(prId, userId);
+      return res.json({
+        data: {
+          status: "completed",
+          progress: getReviewProgress(prId),
+        },
+      });
+    }
+
+    res.status(202).json({
+      data: {
+        status: "processing",
+        message: "Review Running",
+        prId,
+      },
+    });
+
+    setImmediate(() => {
+      void executeAIReviewPipeline(prId, userId);
+    });
+  } catch (error) {
+    releaseReviewLock(prId);
+    if (error instanceof ResourceNotFoundError) {
+      return res.status(404).json({ error: "Pull request not found" });
+    }
+    logger.error("AI Review trigger failed", {
+      prId,
+      error: (error as Error).message,
+    });
+    res.status(500).json({ error: "Failed to start AI review" });
   }
 };
 

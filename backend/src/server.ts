@@ -5,6 +5,7 @@ import { logger } from "./utils/logger";
 import { connectDB } from "./db/supabase";
 import githubRoutes from "./routes/github";
 import apiRoutes from "./routes/api";
+import { timingMiddleware } from "./middleware/timingMiddleware";
 
 const app = express();
 const PORT = env.port;
@@ -34,7 +35,7 @@ app.get("/health", (_req: Request, res: Response) => {
 app.use("/api/github", githubRoutes);
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
-app.use("/api", apiRoutes);
+app.use("/api", timingMiddleware, apiRoutes);
 
 app.use(
 	(err: Error, _req: Request, res: Response, _next: NextFunction) => {

@@ -74,6 +74,24 @@ export const getRepositoryById = async (id: string, userId: string) => {
   return data;
 };
 
+export const getRepositoriesByIds = async (ids: string[], userId: string) => {
+  if (!ids.length) return [];
+
+  const supabase = getServiceDB();
+  const { data, error } = await supabase
+    .from("repositories")
+    .select("id, repo_name, full_name, owner, installation_id, private, created_at")
+    .eq("user_id", userId)
+    .in("id", ids);
+
+  if (error) {
+    logger.error("Failed to fetch repositories by ids", { error: error.message });
+    throw error;
+  }
+
+  return data || [];
+};
+
 export const getRepositoryByGithubId = async (githubRepoId: number) => {
   const supabase = getServiceDB();
   const { data, error } = await supabase

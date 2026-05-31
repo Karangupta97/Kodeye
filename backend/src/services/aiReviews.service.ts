@@ -159,20 +159,34 @@ export const countReviewsByPR = async (prIds: string[], userId: string) => {
 
 export const getTotalReviewStats = async (userId: string) => {
   const supabase = getServiceDB();
-  const { data, error } = await supabase
-    .from("ai_reviews")
-    .select("severity, category")
-    .eq("user_id", userId);
 
-  if (error) {
-    logger.error("Failed to get review stats", { error: error.message });
+  const [total, critical, security] = await Promise.all([
+    supabase
+      .from("ai_reviews")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId),
+    supabase
+      .from("ai_reviews")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .eq("severity", "critical"),
+    supabase
+      .from("ai_reviews")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .eq("category", "security"),
+  ]);
+
+  if (total.error || critical.error || security.error) {
+    logger.error("Failed to get review stats", {
+      error: total.error?.message || critical.error?.message,
+    });
     return { total: 0, critical: 0, securityFindings: 0 };
   }
 
-  const rows = data || [];
   return {
-    total: rows.length,
-    critical: rows.filter((r) => r.severity === "critical").length,
-    securityFindings: rows.filter((r) => r.category === "security").length,
+    total: total.count || 0,
+    critical: critical.count || 0,
+    securityFindings: security.count || 0,
   };
 };

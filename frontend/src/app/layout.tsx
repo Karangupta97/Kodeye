@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
 import { AuthProvider } from "@/components/providers/AuthProvider";
+import { QueryProvider } from "@/components/providers/QueryProvider";
 import { Toaster } from "react-hot-toast";
 import "./globals.css";
 import "@/styles/kodeye.css";
@@ -39,8 +40,9 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col bg-kd-bg text-kd-text">
         <ThemeProvider>
           <AuthProvider>
-            {children}
-            <Toaster
+            <QueryProvider>
+              {children}
+              <Toaster
               position="bottom-right"
               toastOptions={{
                 duration: 4000,
@@ -67,6 +69,7 @@ export default function RootLayout({
                 },
               }}
             />
+            </QueryProvider>
           </AuthProvider>
         </ThemeProvider>
       </body>

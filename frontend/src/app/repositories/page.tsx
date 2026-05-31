@@ -1,24 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { fetchApi } from "@/lib/api";
 import { ArrowUpRight, Lock, Unlock, GitBranch } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { ListItemSkeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { staggerContainer, fadeInUp } from "@/lib/motion";
-
-interface RepositoryRecord {
-  id: string;
-  repo_name: string;
-  full_name: string;
-  private: boolean;
-  installation_id: number;
-  created_at?: string;
-}
+import { useRepositories } from "@/hooks/useApiQueries";
 
 const container = staggerContainer;
 const item = fadeInUp;
@@ -31,32 +21,12 @@ const formatTimestamp = (value?: string | null) => {
 };
 
 export default function RepositoriesPage() {
-  const [repositories, setRepositories] = useState<RepositoryRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data: repositories = [], isLoading, error, refetch } = useRepositories();
 
   const appSlug = process.env.NEXT_PUBLIC_GITHUB_APP_SLUG;
   const installUrl = appSlug
     ? `https://github.com/apps/${appSlug}/installations/new`
     : null;
-
-  const load = async () => {
-    try {
-      setError(null);
-      setLoading(true);
-      const data = await fetchApi<RepositoryRecord[]>("/api/repositories");
-      setRepositories(data);
-    } catch {
-      setRepositories([]);
-      setError("Failed to load repositories.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    load();
-  }, []);
 
   return (
     <motion.div
@@ -78,13 +48,13 @@ export default function RepositoriesPage() {
       />
 
       <motion.div variants={item} className="glass-card p-6">
-        {loading ? (
+        {isLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <ListItemSkeleton />
             <ListItemSkeleton />
           </div>
         ) : error ? (
-          <ErrorState message={error} onRetry={() => { setLoading(true); load(); }} />
+          <ErrorState message="Failed to load repositories." onRetry={() => refetch()} />
         ) : repositories.length === 0 ? (
           <EmptyState
             icon={GitBranch}
@@ -130,7 +100,7 @@ export default function RepositoriesPage() {
                 <div className="flex items-center justify-between text-xs text-kd-text-muted">
                   <span className="flex items-center gap-1">
                     <GitBranch className="w-3 h-3" />
-                    Installation #{repo.installation_id}
+                    Connected
                   </span>
                   <span>Connected {formatTimestamp(repo.created_at)}</span>
                 </div>

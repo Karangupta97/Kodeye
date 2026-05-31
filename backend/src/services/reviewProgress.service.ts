@@ -2,6 +2,7 @@ import { EventEmitter } from "events";
 
 export type ReviewProgressState =
   | "idle"
+  | "queued"
   | "preparing_context"
   | "running_security"
   | "running_bug"

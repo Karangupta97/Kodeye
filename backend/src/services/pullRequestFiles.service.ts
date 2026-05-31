@@ -51,19 +51,33 @@ export const replacePullRequestFiles = async (
   return data || [];
 };
 
-export const listPullRequestFiles = async (pullRequestId: string) => {
+export const listPullRequestFiles = async (
+  pullRequestId: string,
+  options: { includePatch?: boolean; filename?: string } = {}
+) => {
+  const { includePatch = true, filename } = options;
   const supabase = getServiceDB();
-  const { data, error } = await supabase
+
+  let query = supabase
     .from("pull_request_files")
     .select("*")
     .eq("pull_request_id", pullRequestId);
+
+  if (filename) {
+    query = query.eq("filename", filename);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     logger.error("Failed to list pull request files", { error: error.message });
     throw error;
   }
 
-  return data || [];
+  return (data || []).map((row) => ({
+    ...row,
+    patch: includePatch ? row.patch : null,
+  }));
 };
 
 export const listPullRequestFileCounts = async (pullRequestIds: string[]) => {

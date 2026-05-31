@@ -9,13 +9,30 @@ export interface ApiResponse<T> {
 
 export type ApiValidator<T> = (payload: unknown) => payload is T;
 
+let cachedAccessToken: string | null = null;
+let tokenExpiresAt = 0;
+
+export const setCachedAccessToken = (
+  token: string | null,
+  expiresAt?: number
+) => {
+  cachedAccessToken = token;
+  tokenExpiresAt = expiresAt ?? (token ? Date.now() + 55 * 60_000 : 0);
+};
+
 const getAccessToken = async (): Promise<string | null> => {
+  if (cachedAccessToken && Date.now() < tokenExpiresAt) {
+    return cachedAccessToken;
+  }
+
   try {
     const supabase = createClient();
     const {
       data: { session },
     } = await supabase.auth.getSession();
-    return session?.access_token ?? null;
+    const token = session?.access_token ?? null;
+    setCachedAccessToken(token, session?.expires_at ? session.expires_at * 1000 : undefined);
+    return token;
   } catch {
     return null;
   }
@@ -54,4 +71,25 @@ export const fetchApi = async <T>(
   }
 
   return payload.data as T;
+};
+
+export const fetchPullRequestFiles = (
+  prId: string,
+  options?: { includePatch?: boolean; filename?: string }
+) => {
+  const params = new URLSearchParams();
+  if (options?.includePatch) params.set("includePatch", "1");
+  if (options?.filename) params.set("filename", options.filename);
+  const qs = params.toString();
+  return fetchApi<Array<{
+    id: string;
+    filename: string;
+    status: string;
+    additions: number;
+    deletions: number;
+    changes: number;
+    patch: string | null;
+    raw_url: string | null;
+    blob_url: string | null;
+  }>>(`/api/pull-requests/${prId}/files${qs ? `?${qs}` : ""}`);
 };

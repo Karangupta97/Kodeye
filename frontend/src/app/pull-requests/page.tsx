@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { fetchApi } from "@/lib/api";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -12,6 +12,8 @@ import {
   ShieldAlert,
   User,
 } from "lucide-react";
+import { fetchApi } from "@/lib/api";
+import { queryKeys, usePullRequests } from "@/hooks/useApiQueries";
 
 interface RepositoryInfo {
   id: string;
@@ -67,198 +69,135 @@ const formatTimestamp = (value?: string | null) => {
 };
 
 export default function PullRequestsPage() {
-  const [pullRequests, setPullRequests] = useState<PullRequestRecord[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [syncing, setSyncing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [reloadRequest, setReloadRequest] = useState({
-    token: 0,
-    forceSync: false,
-  });
+  const { data: pullRequests = [], isLoading, error, refetch } = usePullRequests();
 
-  useEffect(() => {
-    let active = true;
-    const debug = process.env.NEXT_PUBLIC_DEBUG_PULL_REQUESTS === "true";
-
-    const load = async () => {
-      try {
-        setError(null);
-        if (reloadRequest.forceSync) {
-          setSyncing(true);
-        }
-        const data = await fetchApi<PullRequestRecord[]>(
-          reloadRequest.forceSync
-            ? "/api/pull-requests?sync=1"
-            : "/api/pull-requests",
-          {},
-          (payload): payload is PullRequestRecord[] => Array.isArray(payload)
-        );
-        if (debug) {
-          console.debug("Pull requests payload", data);
-        }
-        if (active) {
-          setPullRequests(data);
-        }
-      } catch (err) {
-        if (debug) {
-          console.error("Failed to load pull requests", err);
-        }
-        if (active) {
-          setPullRequests([]);
-          setError("Failed to load pull requests. Please try again.");
-        }
-      } finally {
-        if (active) {
-          setLoading(false);
-          setSyncing(false);
-        }
-      }
-    };
-
-    load();
-
-    return () => {
-      active = false;
-    };
-  }, [reloadRequest]);
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      const data = await fetchApi<PullRequestRecord[]>("/api/pull-requests?sync=1");
+      queryClient.setQueryData(queryKeys.pullRequests(false), data);
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   return (
     <motion.div
       variants={container}
       initial="hidden"
       animate="show"
-      className="max-w-6xl mx-auto space-y-6"
+      className="space-y-6"
     >
-      <motion.div variants={item} className="flex items-center justify-between">
+      <motion.div variants={item} className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-kd-text">
-            Pull Requests
-          </h1>
+          <h1 className="text-2xl font-bold text-kd-text">Pull Requests</h1>
           <p className="text-sm text-kd-text-muted mt-1">
-            Track webhook activity and inline comment status.
+            Open PRs from connected repositories with AI review status.
           </p>
         </div>
         <button
           type="button"
-          onClick={() => {
-            setLoading(true);
-            setReloadRequest((value) => ({
-              token: value.token + 1,
-              forceSync: true,
-            }));
-          }}
-          disabled={loading || syncing}
-          className="btn-ghost text-xs disabled:opacity-60 disabled:cursor-not-allowed"
+          onClick={handleSync}
+          disabled={syncing || isLoading}
+          className="btn-primary text-sm disabled:opacity-50"
         >
-          {syncing ? "Syncing..." : "Sync latest from GitHub"}
+          {syncing ? "Syncing from GitHub…" : "Sync from GitHub"}
         </button>
       </motion.div>
 
       <motion.div variants={item} className="glass-card p-6">
-        {loading ? (
-          <div className="grid grid-cols-1 gap-4">
-            {[1, 2, 3].map((idx) => (
-              <div
-                key={idx}
-                className="rounded-xl border border-kd-border bg-kd-bg/40 p-5 animate-pulse"
-              >
-                <div className="h-4 w-2/3 bg-kd-border/60 rounded" />
-                <div className="h-3 w-1/3 bg-kd-border/60 rounded mt-3" />
-                <div className="h-3 w-full bg-kd-border/60 rounded mt-6" />
-              </div>
+        {isLoading ? (
+          <div className="space-y-4">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="shimmer h-24 rounded-xl" />
             ))}
           </div>
         ) : error ? (
-          <div className="rounded-xl border border-kd-critical/40 bg-kd-critical/10 p-4 text-sm text-kd-text space-y-3">
-            <p>{error}</p>
-            <button
-              type="button"
-              onClick={() => {
-                setLoading(true);
-                setReloadRequest((value) => ({
-                  token: value.token + 1,
-                  forceSync: false,
-                }));
-              }}
-              className="btn-ghost text-xs"
-            >
+          <div className="text-center py-8">
+            <AlertTriangle className="w-8 h-8 text-kd-warning mx-auto mb-3" />
+            <p className="text-sm text-kd-text-muted">Failed to load pull requests.</p>
+            <button type="button" onClick={() => refetch()} className="btn-ghost text-sm mt-4">
               Retry
             </button>
           </div>
         ) : pullRequests.length === 0 ? (
-          <div className="rounded-xl border border-kd-border bg-kd-bg/40 p-4 text-sm text-kd-text-muted">
-            No human-authored pull requests yet. Dependabot and other bot PRs are
-            hidden. Open a PR on a connected repo or use &quot;Sync latest from
-            GitHub&quot; after you create one.
+          <div className="text-center py-12">
+            <GitPullRequest className="w-10 h-10 text-kd-text-muted mx-auto mb-3" />
+            <p className="text-sm font-medium text-kd-text">No pull requests yet</p>
+            <p className="text-xs text-kd-text-muted mt-2 max-w-sm mx-auto">
+              Sync from GitHub or open a PR in a connected repository.
+            </p>
+            <button type="button" onClick={handleSync} className="btn-primary text-sm mt-4">
+              Sync from GitHub
+            </button>
           </div>
         ) : (
           <div className="space-y-4">
-            {pullRequests.map((pullRequest) => (
-              <div
-                key={pullRequest.id}
-                className="rounded-xl border border-kd-border bg-kd-bg/40 p-5"
+            {pullRequests.map((pr) => (
+              <article
+                key={pr.id}
+                className="rounded-xl border border-kd-border bg-kd-bg/40 p-5 hover:border-kd-primary/30 transition-colors"
               >
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div className="flex items-start gap-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex gap-3 min-w-0">
                     <img
-                      src={pullRequest.author_avatar_url}
-                      alt={pullRequest.author}
-                      className="w-8 h-8 rounded-full border border-kd-border"
+                      src={pr.author_avatar_url}
+                      alt=""
+                      className="w-9 h-9 rounded-full border border-kd-border shrink-0"
                     />
-                    <div>
-                      <p className="text-lg font-semibold text-kd-text">
-                        {pullRequest.title}
-                      </p>
-                      <p className="text-xs text-kd-text-muted mt-1">
-                        {pullRequest.repository?.full_name || "Unknown repo"}
+                    <div className="min-w-0">
+                      <h2 className="text-base font-semibold text-kd-text truncate">
+                        {pr.title}
+                      </h2>
+                      <p className="text-xs text-kd-text-muted mt-0.5 flex items-center gap-2">
+                        <GitBranch className="w-3 h-3" />
+                        {pr.branch}
                       </p>
                     </div>
                   </div>
-                  <span className="text-xs font-semibold px-2.5 py-1 rounded-full border border-kd-border text-kd-text-muted">
-                    {pullRequest.status}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4 text-xs text-kd-text-muted">
-                  <span className="flex items-center gap-1">
-                    <GitPullRequest className="w-3 h-3" />
-                    PR #{pullRequest.pr_number}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <GitBranch className="w-3 h-3" />
-                    {pullRequest.branch}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <User className="w-3 h-3" />
-                    {pullRequest.author}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3 text-xs">
-                  <span className="inline-flex items-center gap-1 text-kd-warning">
-                    <ShieldAlert className="w-3 h-3" />
-                    Risk: {pullRequest.risk_score}
-                  </span>
-                  <span className="inline-flex items-center gap-1 text-kd-text-muted">
-                    <AlertTriangle className="w-3 h-3" />
-                    Issues: {pullRequest.issue_counts.total}
-                  </span>
-                  <span className="inline-flex items-center gap-1 text-kd-text-muted">
-                    AI: {pullRequest.ai_review_status}
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between mt-4 text-xs text-kd-text-muted">
-                  <span>Updated {formatTimestamp(pullRequest.created_at)}</span>
-                  <Link
-                    href={`/reviews/${pullRequest.id}`}
-                    className="inline-flex items-center gap-1 text-kd-accent hover:text-kd-glow transition-colors"
+                  <span
+                    className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${
+                      pr.ai_review_status === "completed"
+                        ? "border-kd-success/30 text-kd-success bg-kd-success/10"
+                        : "border-kd-warning/30 text-kd-warning bg-kd-warning/10"
+                    }`}
                   >
-                    View details
-                    <ArrowUpRight className="w-3 h-3" />
+                    {pr.ai_review_status === "completed" ? "Reviewed" : "Pending"}
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-4 mt-4 text-xs text-kd-text-muted">
+                  <span className="inline-flex items-center gap-1">
+                    <User className="w-3.5 h-3.5" />
+                    {pr.author}
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <ShieldAlert className="w-3.5 h-3.5" />
+                    Risk {pr.risk_score}
+                  </span>
+                  <span>{pr.issue_counts.total} findings</span>
+                  {pr.issue_counts.critical > 0 && (
+                    <span className="text-kd-critical">
+                      {pr.issue_counts.critical} critical
+                    </span>
+                  )}
+                </div>
+
+                <div className="mt-4 flex items-center justify-between">
+                  <span className="text-xs text-kd-text-muted">
+                    {formatTimestamp(pr.created_at)}
+                  </span>
+                  <Link
+                    href={`/reviews/${pr.id}`}
+                    className="inline-flex items-center gap-1 text-sm text-kd-glow hover:text-kd-accent font-medium"
+                  >
+                    Open review
+                    <ArrowUpRight className="w-4 h-4" />
                   </Link>
                 </div>
-              </div>
+              </article>
             ))}
           </div>
         )}

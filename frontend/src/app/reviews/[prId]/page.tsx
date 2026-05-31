@@ -124,8 +124,7 @@ export default function ReviewPage() {
     setIsReanalyzing(true);
     try {
       await reanalyzeReview(prId);
-      toast.success("AI analysis started");
-      await reload();
+      toast.success("AI analysis started — progress updates live");
     } catch {
       toast.error("Failed to start analysis");
     } finally {

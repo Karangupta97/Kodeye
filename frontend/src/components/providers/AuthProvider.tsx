@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { setCachedAccessToken } from "@/lib/api";
 import type { User, Session } from "@supabase/supabase-js";
 
 export interface UserProfile {
@@ -75,6 +76,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
         setSession(initialSession);
         setUser(initialSession?.user ?? null);
+        setCachedAccessToken(
+          initialSession?.access_token ?? null,
+          initialSession?.expires_at
+            ? initialSession.expires_at * 1000
+            : undefined
+        );
 
         if (initialSession?.user) {
           await fetchProfile(initialSession.user.id);
@@ -96,6 +103,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
       setSession(newSession);
       setUser(newSession?.user ?? null);
+      setCachedAccessToken(
+        newSession?.access_token ?? null,
+        newSession?.expires_at ? newSession.expires_at * 1000 : undefined
+      );
 
       if (newSession?.user) {
         await fetchProfile(newSession.user.id);
@@ -134,6 +145,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setUser(null);
     setSession(null);
     setProfile(null);
+    setCachedAccessToken(null);
     setLoading(false);
 
     // Redirect to home after sign out

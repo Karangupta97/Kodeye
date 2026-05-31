@@ -31,10 +31,12 @@ import {
   getReviewProgress,
   subscribeReviewProgress,
 } from "../services/reviewProgress.service";
-import { getPullRequest as fetchGHPullRequest } from "../github/pr.service";
 import { triggerAIReview } from "./aiReview.controller";
 import { listFixesByPR, getFixStatsForPR } from "../services/reviewFixes.service";
 import { confidenceLabel } from "../ai/fixes/fix.validator";
+import { cached } from "../utils/cache";
+
+const REVIEW_BUNDLE_TTL_MS = 15_000;
 
 const SEVERITY_MAP: Record<string, string> = {
   critical: "critical",
@@ -162,68 +164,104 @@ export const getReviewBundle = async (req: Request, res: Response) => {
     ? req.params.prId[0]
     : req.params.prId;
   const userId = getAuthedUserId(req);
+  const timer = req.timer!;
+  const includePatch = req.query.includePatch === "1";
+  const skipCache = req.query.refresh === "1" || includePatch;
 
   try {
-    const pullRequest = await requirePullRequest(prId, userId);
-    const repository = await requireRepository(pullRequest.repo_id, userId);
-    const [reviews, riskScore, fixes, fixStats] = await Promise.all([
-      listReviewsByPR(prId, userId),
-      getRiskScoreByPR(prId, userId),
-      listFixesByPR(prId, userId),
-      getFixStatsForPR(prId, userId),
-    ]);
+    const pullRequest = await timer.timeDatabase("requirePullRequest", () =>
+      requirePullRequest(prId, userId)
+    );
 
-    const files = await resolveReviewFiles({
-      prId,
-      installationId: repository.installation_id,
-      owner: repository.owner,
-      repoName: repository.repo_name,
-      pullNumber: pullRequest.pr_number,
-      findings: reviews,
-    });
+    const loadBundle = async () => {
+      const [repository, reviews, riskScore, fixes, fixStats, persistedEvents] =
+        await timer.timeDatabase("reviewBundleCore", () =>
+          Promise.all([
+            requireRepository(pullRequest.repo_id, userId),
+            listReviewsByPR(prId, userId),
+            getRiskScoreByPR(prId, userId),
+            listFixesByPR(prId, userId),
+            getFixStatsForPR(prId, userId),
+            listReviewEvents(prId, userId),
+          ])
+        );
 
-    const findingIds = reviews.map((r: any) => r.id).filter(Boolean);
-    const interactions = await listInteractionsForFindings(findingIds, userId);
+      const findingIds = reviews
+        .map((r: { id: string }) => r.id)
+        .filter(Boolean);
+
+      const [files, interactions] = await timer.timeDatabase(
+        "reviewBundleFiles",
+        () =>
+          Promise.all([
+            resolveReviewFiles({
+              prId,
+              installationId: repository.installation_id,
+              owner: repository.owner,
+              repoName: repository.repo_name,
+              pullNumber: pullRequest.pr_number,
+              findings: reviews,
+              includePatch,
+            }),
+            listInteractionsForFindings(findingIds, userId),
+          ])
+      );
+
+      return {
+        pullRequest,
+        repository,
+        reviews,
+        riskScore,
+        fixes,
+        fixStats,
+        persistedEvents,
+        files,
+        interactions,
+      };
+    };
+
+    const bundleData = skipCache
+      ? await loadBundle()
+      : await cached(`review-bundle:${userId}:${prId}`, REVIEW_BUNDLE_TTL_MS, loadBundle);
+
+    const {
+      repository,
+      reviews,
+      riskScore,
+      fixes,
+      fixStats,
+      persistedEvents,
+      files,
+      interactions,
+    } = bundleData;
+
     const fixesByFinding = new Map(
-      fixes.map((f: any) => [f.finding_id, f])
+      fixes.map((f: { finding_id: string }) => [f.finding_id, f])
     );
     const enrichedReviews = enrichFindings(reviews, interactions, fixesByFinding);
 
-    let ghMeta: {
+    const ghMeta: {
       base_branch?: string;
       commits_count?: number;
       github_url?: string;
       description?: string;
-    } = {};
-
-    try {
-      const ghPR = await fetchGHPullRequest({
-        installationId: repository.installation_id,
-        owner: repository.owner,
-        repo: repository.repo_name,
-        pullNumber: pullRequest.pr_number,
-      });
-      ghMeta = {
-        base_branch: ghPR.base?.ref,
-        commits_count: ghPR.commits,
-        github_url: ghPR.html_url,
-        description: ghPR.body || undefined,
-      };
-    } catch {
-      ghMeta.github_url = `https://github.com/${repository.full_name}/pull/${pullRequest.pr_number}`;
-    }
+    } = {
+      base_branch: "main",
+      commits_count: 1,
+      github_url: `https://github.com/${repository.full_name}/pull/${pullRequest.pr_number}`,
+    };
 
     const overallScore = riskScore?.overall_score ?? 0;
-    const timeline = await seedDefaultTimeline(prId, userId, {
-      prNumber: pullRequest.pr_number,
-      author: pullRequest.author,
-      fileCount: files.length,
-      hasReview: reviews.length > 0,
-      issueCount: reviews.length,
-      riskScore: overallScore,
-    });
-
-    const persistedEvents = await listReviewEvents(prId, userId);
+    const timeline = await timer.timeDatabase("seedTimeline", () =>
+      seedDefaultTimeline(prId, userId, {
+        prNumber: pullRequest.pr_number,
+        author: pullRequest.author,
+        fileCount: files.length,
+        hasReview: reviews.length > 0,
+        issueCount: reviews.length,
+        riskScore: overallScore,
+      })
+    );
     const agents = computeAgents(reviews);
     const displayTimeline = buildDisplayTimeline({
       persistedEvents,

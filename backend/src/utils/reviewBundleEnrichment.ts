@@ -22,10 +22,13 @@ export const resolveReviewFiles = async (input: {
   repoName: string;
   pullNumber: number;
   findings: Array<{ file: string }>;
+  includePatch?: boolean;
 }): Promise<BundleFileRow[]> => {
-  let files = (await listPullRequestFiles(input.prId)) as BundleFileRow[];
+  let files = (await listPullRequestFiles(input.prId, {
+    includePatch: input.includePatch ?? false,
+  })) as BundleFileRow[];
 
-  if (!files.length) {
+  if (!files.length && input.includePatch !== false) {
     try {
       const ghFiles = await fetchGHFiles({
         installationId: input.installationId,
