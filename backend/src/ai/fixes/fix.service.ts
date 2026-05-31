@@ -37,6 +37,7 @@ async function runInBatches<T>(
 
 export const generateFixForFinding = async (input: {
   finding: StoredFinding;
+  userId: string;
   repositoryId: string;
   files: PRFileInfo[];
   metadata: {
@@ -46,10 +47,10 @@ export const generateFixForFinding = async (input: {
   };
   force?: boolean;
 }) => {
-  const { finding, repositoryId, files, metadata, force } = input;
+  const { finding, userId, repositoryId, files, metadata, force } = input;
 
   if (!force) {
-    const existing = await getFixByFindingId(finding.id);
+    const existing = await getFixByFindingId(finding.id, userId);
     if (existing) {
       return existing;
     }
@@ -76,6 +77,7 @@ export const generateFixForFinding = async (input: {
     finding_id: finding.id,
     repository_id: repositoryId,
     pr_id: finding.pr_id,
+    user_id: userId,
     file_path: finding.file,
     start_line: ctx.startLine,
     end_line: ctx.endLine,
@@ -100,6 +102,7 @@ export const generateFixForFinding = async (input: {
 
 export const generateFixesForPR = async (input: {
   prId: string;
+  userId: string;
   repositoryId: string;
   findings: StoredFinding[];
   files: PRFileInfo[];
@@ -109,7 +112,7 @@ export const generateFixesForPR = async (input: {
     repositoryFullName: string;
   };
 }) => {
-  const { prId, repositoryId, findings, files, metadata } = input;
+  const { prId, userId, repositoryId, findings, files, metadata } = input;
 
   if (!findings.length) {
     return { generated: 0, skipped: 0, failed: 0 };
@@ -123,7 +126,7 @@ export const generateFixesForPR = async (input: {
 
   await runInBatches(findings, CONCURRENCY, async (finding) => {
     try {
-      const existing = await getFixByFindingId(finding.id);
+      const existing = await getFixByFindingId(finding.id, userId);
       if (existing) {
         skipped++;
         return;
@@ -131,6 +134,7 @@ export const generateFixesForPR = async (input: {
 
       const fix = await generateFixForFinding({
         finding: { ...finding, pr_id: prId },
+        userId,
         repositoryId,
         files,
         metadata,

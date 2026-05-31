@@ -1,10 +1,21 @@
 import { Request, Response } from "express";
 import { env } from "../config/env";
+import { getAuthedUserId } from "../middleware/requireAuth";
 import { logger } from "../utils/logger";
-import { getPullRequestById } from "../services/pullRequests.service";
-import { getRepositoryById } from "../services/repositories.service";
-import { listPullRequestFiles } from "../services/pullRequestFiles.service";
-import { listReviewsByPR } from "../services/aiReviews.service";
+import {
+  requirePullRequest,
+  requireRepository,
+  ResourceNotFoundError,
+} from "../utils/ownership";
+import {
+  buildDisplayTimeline,
+  buildReviewMetadata,
+  resolveReviewFiles,
+} from "../utils/reviewBundleEnrichment";
+import {
+  getAiReviewById,
+  listReviewsByPR,
+} from "../services/aiReviews.service";
 import { getRiskScoreByPR } from "../services/riskScores.service";
 import {
   listReviewEvents,
@@ -150,20 +161,29 @@ export const getReviewBundle = async (req: Request, res: Response) => {
   const prId = Array.isArray(req.params.prId)
     ? req.params.prId[0]
     : req.params.prId;
+  const userId = getAuthedUserId(req);
 
   try {
-    const pullRequest = await getPullRequestById(prId);
-    const repository = await getRepositoryById(pullRequest.repo_id);
-    const [files, reviews, riskScore, fixes, fixStats] = await Promise.all([
-      listPullRequestFiles(prId),
-      listReviewsByPR(prId),
-      getRiskScoreByPR(prId),
-      listFixesByPR(prId),
-      getFixStatsForPR(prId),
+    const pullRequest = await requirePullRequest(prId, userId);
+    const repository = await requireRepository(pullRequest.repo_id, userId);
+    const [reviews, riskScore, fixes, fixStats] = await Promise.all([
+      listReviewsByPR(prId, userId),
+      getRiskScoreByPR(prId, userId),
+      listFixesByPR(prId, userId),
+      getFixStatsForPR(prId, userId),
     ]);
 
+    const files = await resolveReviewFiles({
+      prId,
+      installationId: repository.installation_id,
+      owner: repository.owner,
+      repoName: repository.repo_name,
+      pullNumber: pullRequest.pr_number,
+      findings: reviews,
+    });
+
     const findingIds = reviews.map((r: any) => r.id).filter(Boolean);
-    const interactions = await listInteractionsForFindings(findingIds);
+    const interactions = await listInteractionsForFindings(findingIds, userId);
     const fixesByFinding = new Map(
       fixes.map((f: any) => [f.finding_id, f])
     );
@@ -194,7 +214,7 @@ export const getReviewBundle = async (req: Request, res: Response) => {
     }
 
     const overallScore = riskScore?.overall_score ?? 0;
-    const timeline = await seedDefaultTimeline(prId, {
+    const timeline = await seedDefaultTimeline(prId, userId, {
       prNumber: pullRequest.pr_number,
       author: pullRequest.author,
       fileCount: files.length,
@@ -203,7 +223,29 @@ export const getReviewBundle = async (req: Request, res: Response) => {
       riskScore: overallScore,
     });
 
-    const persistedEvents = await listReviewEvents(prId);
+    const persistedEvents = await listReviewEvents(prId, userId);
+    const agents = computeAgents(reviews);
+    const displayTimeline = buildDisplayTimeline({
+      persistedEvents,
+      seededEvents: timeline,
+      agents,
+      fixStats: {
+        fixes_generated: fixStats.total,
+        total: fixStats.total,
+      },
+      hasReview: reviews.length > 0,
+      prCreatedAt: pullRequest.created_at,
+    });
+    const reviewMetadata = buildReviewMetadata({
+      repositoryFullName: repository.full_name,
+      branch: pullRequest.branch,
+      baseBranch: ghMeta.base_branch || "main",
+      commitCount: ghMeta.commits_count ?? 1,
+      files,
+      riskScoreCreatedAt: riskScore?.created_at ?? null,
+      firstFindingAt: reviews[0]?.created_at ?? null,
+      timeline: displayTimeline,
+    });
     const progress = getReviewProgress(prId);
 
     const reviewCompletedEvent = persistedEvents.some(
@@ -273,17 +315,18 @@ export const getReviewBundle = async (req: Request, res: Response) => {
         breakdown: computeBreakdown(reviews),
         severity_counts: computeSeverityCounts(reviews),
         category_counts: computeCategoryCounts(reviews),
-        agents: computeAgents(reviews),
-        timeline: (persistedEvents.length ? persistedEvents : timeline).map(
-          (e: any) => ({
-            id: e.id || e.event_type,
-            label: e.label,
-            detail: e.detail,
-            timestamp: e.created_at,
-            status: e.status,
-            event_type: e.event_type,
-          })
-        ),
+        agents,
+        timeline: displayTimeline.map((e) => ({
+          id: e.id,
+          label: e.label,
+          detail: e.detail,
+          timestamp: e.timestamp,
+          status: e.status,
+          event_type: e.event_type,
+          duration_ms: e.duration_ms,
+          icon: e.icon,
+        })),
+        review_metadata: reviewMetadata,
         progress,
         fix_suggestions: {
           total_findings: reviews.length,
@@ -341,6 +384,9 @@ export const getReviewBundle = async (req: Request, res: Response) => {
       overall_score: overallScore,
     });
   } catch (error) {
+    if (error instanceof ResourceNotFoundError) {
+      return res.status(404).json({ error: "Pull request not found" });
+    }
     logger.error("GET /api/reviews/:prId failed", {
       prId,
       error: (error as Error).message,
@@ -361,6 +407,15 @@ export const shareReview = async (req: Request, res: Response) => {
     ? req.params.prId[0]
     : req.params.prId;
 
+  try {
+    await requirePullRequest(prId, getAuthedUserId(req));
+  } catch (error) {
+    if (error instanceof ResourceNotFoundError) {
+      return res.status(404).json({ error: "Pull request not found" });
+    }
+    throw error;
+  }
+
   res.json({
     data: {
       share_url: `${env.frontendUrl}/reviews/${prId}`,
@@ -374,13 +429,14 @@ export const exportReview = async (req: Request, res: Response) => {
     ? req.params.prId[0]
     : req.params.prId;
   const format = (req.query.format as string) || "json";
+  const userId = getAuthedUserId(req);
 
   try {
-    const pullRequest = await getPullRequestById(prId);
-    const repository = await getRepositoryById(pullRequest.repo_id);
+    const pullRequest = await requirePullRequest(prId, userId);
+    const repository = await requireRepository(pullRequest.repo_id, userId);
     const [reviews, riskScore] = await Promise.all([
-      listReviewsByPR(prId),
-      getRiskScoreByPR(prId),
+      listReviewsByPR(prId, userId),
+      getRiskScoreByPR(prId, userId),
     ]);
 
     const bundle = {
@@ -458,6 +514,9 @@ ${reviews
 
     res.status(400).json({ error: "Unsupported format. Use json, markdown, or pdf" });
   } catch (error) {
+    if (error instanceof ResourceNotFoundError) {
+      return res.status(404).json({ error: "Pull request not found" });
+    }
     res.status(500).json({ error: "Export failed" });
   }
 };
@@ -466,9 +525,8 @@ export const updateFindingInteraction = async (req: Request, res: Response) => {
   const findingId = Array.isArray(req.params.findingId)
     ? req.params.findingId[0]
     : req.params.findingId;
-  const { action, user_id } = req.body as {
+  const { action } = req.body as {
     action: FindingAction;
-    user_id?: string;
   };
 
   const valid: FindingAction[] = [
@@ -483,10 +541,16 @@ export const updateFindingInteraction = async (req: Request, res: Response) => {
   }
 
   try {
+    const userId = getAuthedUserId(req);
+    const finding = await getAiReviewById(findingId, userId);
+    if (!finding) {
+      return res.status(404).json({ error: "Finding not found" });
+    }
+
     const result = await upsertFindingInteraction(
       findingId,
       action,
-      user_id
+      userId
     );
     res.json({ data: result });
   } catch (error) {
@@ -494,10 +558,19 @@ export const updateFindingInteraction = async (req: Request, res: Response) => {
   }
 };
 
-export const streamReviewProgress = (req: Request, res: Response) => {
+export const streamReviewProgress = async (req: Request, res: Response) => {
   const prId = Array.isArray(req.params.prId)
     ? req.params.prId[0]
     : req.params.prId;
+
+  try {
+    await requirePullRequest(prId, getAuthedUserId(req));
+  } catch (error) {
+    if (error instanceof ResourceNotFoundError) {
+      return res.status(404).json({ error: "Pull request not found" });
+    }
+    throw error;
+  }
 
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -525,9 +598,10 @@ export const streamReviewProgress = (req: Request, res: Response) => {
   });
 };
 
-export const recordReviewRunEvents = async (prId: string) => {
+export const recordReviewRunEvents = async (prId: string, userId: string) => {
   await appendReviewEvent({
     pr_id: prId,
+    user_id: userId,
     event_type: "ai_review_started",
     label: "AI Review Started",
     detail: "Multi-agent pipeline running",

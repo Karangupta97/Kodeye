@@ -40,7 +40,10 @@ export function useReviewBundle(prId: string) {
 
   useEffect(() => {
     if (!prId) return;
-    const unsubscribe = subscribeReviewStream(prId, (progress) => {
+    let unsubscribe: (() => void) | undefined;
+    let cancelled = false;
+
+    void subscribeReviewStream(prId, (progress) => {
       setBundle((prev) =>
         prev
           ? {
@@ -58,8 +61,18 @@ export function useReviewBundle(prId: string) {
       if (progress.state === "completed") {
         load(true);
       }
+    }).then((cleanup) => {
+      if (cancelled) {
+        cleanup();
+      } else {
+        unsubscribe = cleanup;
+      }
     });
-    return unsubscribe;
+
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
   }, [prId, load]);
 
   return { bundle, loading, error, refreshing, reload: () => load(true) };

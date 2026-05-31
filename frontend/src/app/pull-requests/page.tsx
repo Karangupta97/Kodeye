@@ -187,7 +187,9 @@ export default function PullRequestsPage() {
           </div>
         ) : pullRequests.length === 0 ? (
           <div className="rounded-xl border border-kd-border bg-kd-bg/40 p-4 text-sm text-kd-text-muted">
-            No pull requests found yet. Open or sync a PR in GitHub, then refresh.
+            No human-authored pull requests yet. Dependabot and other bot PRs are
+            hidden. Open a PR on a connected repo or use &quot;Sync latest from
+            GitHub&quot; after you create one.
           </div>
         ) : (
           <div className="space-y-4">

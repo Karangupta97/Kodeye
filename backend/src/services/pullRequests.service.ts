@@ -1,5 +1,6 @@
-import { getDB } from "../db/supabase";
+import { getServiceDB } from "../db/supabase";
 import { logger } from "../utils/logger";
+import { isUserPullRequestAuthor } from "../utils/pullRequestAuthor";
 import { listRepositories } from "./repositories.service";
 import { listOpenPullRequests } from "../github/pr.service";
 
@@ -13,10 +14,11 @@ export interface PullRequestRecord {
   author: string;
   status: string;
   created_at: string;
+  user_id: string;
 }
 
 export const upsertPullRequest = async (record: PullRequestRecord) => {
-  const supabase = getDB();
+  const supabase = getServiceDB();
   const { data, error } = await supabase
     .from("pull_requests")
     .upsert(record, { onConflict: "github_pr_id" })
@@ -31,9 +33,9 @@ export const upsertPullRequest = async (record: PullRequestRecord) => {
   return data;
 };
 
-export const listPullRequests = async (repoId?: string) => {
-  const supabase = getDB();
-  let query = supabase.from("pull_requests").select("*");
+export const listPullRequests = async (userId: string, repoId?: string) => {
+  const supabase = getServiceDB();
+  let query = supabase.from("pull_requests").select("*").eq("user_id", userId);
 
   if (repoId) {
     query = query.eq("repo_id", repoId);
@@ -46,7 +48,8 @@ export const listPullRequests = async (repoId?: string) => {
     throw error;
   }
 
-  return data || [];
+  const rows = data || [];
+  return rows.filter((pr) => isUserPullRequestAuthor(pr.author));
 };
 
 const mapStatus = (status: string) => {
@@ -56,8 +59,11 @@ const mapStatus = (status: string) => {
   return "open";
 };
 
-export const syncPullRequestsFromGithub = async (repoId?: string) => {
-  const repositories = await listRepositories();
+export const syncPullRequestsFromGithub = async (
+  userId: string,
+  repoId?: string
+) => {
+  const repositories = await listRepositories(userId);
   const targetRepos = repoId
     ? repositories.filter((repo) => repo.id === repoId)
     : repositories;
@@ -83,15 +89,21 @@ export const syncPullRequestsFromGithub = async (repoId?: string) => {
       });
 
       for (const pull of pulls) {
+        const author = pull.user?.login || "unknown";
+        if (!isUserPullRequestAuthor(author)) {
+          continue;
+        }
+
         await upsertPullRequest({
           github_pr_id: pull.id,
           repo_id: repo.id,
           pr_number: pull.number,
           title: pull.title,
           branch: pull.head?.ref || "",
-          author: pull.user?.login || "unknown",
+          author,
           status: mapStatus(pull.state || "open"),
           created_at: pull.created_at || new Date().toISOString(),
+          user_id: userId,
         });
         synced += 1;
       }
@@ -107,13 +119,14 @@ export const syncPullRequestsFromGithub = async (repoId?: string) => {
   return { synced };
 };
 
-export const getPullRequestById = async (id: string) => {
-  const supabase = getDB();
+export const getPullRequestById = async (id: string, userId: string) => {
+  const supabase = getServiceDB();
   const { data, error } = await supabase
     .from("pull_requests")
     .select("*")
     .eq("id", id)
-    .single();
+    .eq("user_id", userId)
+    .maybeSingle();
 
   if (error) {
     logger.error("Failed to fetch pull request", { error: error.message });

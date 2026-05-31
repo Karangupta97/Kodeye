@@ -1,25 +1,41 @@
 import { Request, Response } from "express";
+import { getAuthedUserId } from "../middleware/requireAuth";
 import { logger } from "../utils/logger";
-import { getPullRequestById } from "../services/pullRequests.service";
-import { getRepositoryById } from "../services/repositories.service";
+import {
+  requirePullRequest,
+  requireRepository,
+  ResourceNotFoundError,
+} from "../utils/ownership";
 import { listPullRequestFiles } from "../services/pullRequestFiles.service";
 import { listReviewsByPR } from "../services/aiReviews.service";
 import { getRiskScoreByPR } from "../services/riskScores.service";
 import { runAIReview, ReviewRequest } from "../ai/ai.service";
 import { getPullRequest as fetchGHPullRequest, getPullRequestFiles as fetchGHFiles } from "../github/pr.service";
-import { setReviewProgress, clearReviewProgress } from "../services/reviewProgress.service";
+import {
+  setReviewProgress,
+  clearReviewProgress,
+  tryAcquireReviewLock,
+  releaseReviewLock,
+} from "../services/reviewProgress.service";
 import { appendReviewEvent } from "../services/reviewEvents.service";
 
 export const triggerAIReview = async (req: Request, res: Response) => {
   const prId = Array.isArray(req.params.id)
     ? req.params.id[0]
     : req.params.id;
+  const userId = getAuthedUserId(req);
 
-  logger.info("AI Review: Trigger requested", { prId });
+  logger.info("AI Review: Trigger requested", { prId, userId });
+
+  if (!tryAcquireReviewLock(prId)) {
+    return res.status(409).json({
+      error: "AI review already in progress for this pull request",
+    });
+  }
 
   try {
     logger.info("AI Review: Step 1 — Fetching pull request from DB", { prId });
-    const pullRequest = await getPullRequestById(prId);
+    const pullRequest = await requirePullRequest(prId, userId);
     logger.info("AI Review: Step 1 ✓ — Pull request fetched", {
       prId,
       title: pullRequest.title,
@@ -28,7 +44,7 @@ export const triggerAIReview = async (req: Request, res: Response) => {
     });
 
     logger.info("AI Review: Step 2 — Fetching repository from DB", { repoId: pullRequest.repo_id });
-    const repository = await getRepositoryById(pullRequest.repo_id);
+    const repository = await requireRepository(pullRequest.repo_id, userId);
     logger.info("AI Review: Step 2 ✓ — Repository fetched", {
       owner: repository.owner,
       repo: repository.repo_name,
@@ -111,6 +127,7 @@ export const triggerAIReview = async (req: Request, res: Response) => {
 
     const reviewRequest: ReviewRequest = {
       prId,
+      userId,
       repositoryId: repository.id,
       prNumber: pullRequest.pr_number,
       prTitle: pullRequest.title,
@@ -151,6 +168,7 @@ export const triggerAIReview = async (req: Request, res: Response) => {
 
     await appendReviewEvent({
       pr_id: prId,
+      user_id: userId,
       event_type: "ai_review_started",
       label: "AI Review Started",
       detail: "Multi-agent analysis running",
@@ -182,6 +200,7 @@ export const triggerAIReview = async (req: Request, res: Response) => {
 
     await appendReviewEvent({
       pr_id: prId,
+      user_id: userId,
       event_type: "review_completed",
       label: "Review Completed",
       detail: `${result.issues.length} finding(s)`,
@@ -191,6 +210,7 @@ export const triggerAIReview = async (req: Request, res: Response) => {
     if (result.commentsPosted > 0) {
       await appendReviewEvent({
         pr_id: prId,
+        user_id: userId,
         event_type: "github_comment_posted",
         label: "GitHub Comments Posted",
         detail: `${result.commentsPosted} inline comment(s) on PR #${pullRequest.pr_number}`,
@@ -228,6 +248,9 @@ export const triggerAIReview = async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
+    if (error instanceof ResourceNotFoundError) {
+      return res.status(404).json({ error: "Pull request not found" });
+    }
     setReviewProgress({
       prId,
       state: "failed",
@@ -241,6 +264,7 @@ export const triggerAIReview = async (req: Request, res: Response) => {
     });
     res.status(500).json({ error: "AI review failed" });
   } finally {
+    releaseReviewLock(prId);
     setTimeout(() => clearReviewProgress(prId), 60000);
   }
 };
@@ -250,9 +274,14 @@ export const getAIReviews = async (req: Request, res: Response) => {
     const prId = Array.isArray(req.params.id)
       ? req.params.id[0]
       : req.params.id;
-    const reviews = await listReviewsByPR(prId);
+    const userId = getAuthedUserId(req);
+    await requirePullRequest(prId, userId);
+    const reviews = await listReviewsByPR(prId, userId);
     res.json({ data: reviews });
   } catch (error) {
+    if (error instanceof ResourceNotFoundError) {
+      return res.status(404).json({ error: "Pull request not found" });
+    }
     logger.error("GET /api/pull-requests/:id/reviews failed", {
       error: (error as Error).message,
     });
@@ -265,7 +294,9 @@ export const getAIRiskScore = async (req: Request, res: Response) => {
     const prId = Array.isArray(req.params.id)
       ? req.params.id[0]
       : req.params.id;
-    const riskScore = await getRiskScoreByPR(prId);
+    const userId = getAuthedUserId(req);
+    await requirePullRequest(prId, userId);
+    const riskScore = await getRiskScoreByPR(prId, userId);
 
     res.json({
       data: riskScore || {
@@ -276,6 +307,9 @@ export const getAIRiskScore = async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
+    if (error instanceof ResourceNotFoundError) {
+      return res.status(404).json({ error: "Pull request not found" });
+    }
     logger.error("GET /api/pull-requests/:id/risk-score failed", {
       error: (error as Error).message,
     });

@@ -1,4 +1,4 @@
-import { getDB } from "../db/supabase";
+import { getServiceDB } from "../db/supabase";
 import { logger } from "../utils/logger";
 
 export interface RiskScoreInput {
@@ -10,17 +10,16 @@ export interface RiskScoreInput {
 
 export const upsertRiskScore = async (
   prId: string,
-  scores: RiskScoreInput
+  scores: RiskScoreInput,
+  userId: string
 ) => {
-  const supabase = getDB();
-
-  // Delete existing score for this PR, then insert new one
-  await supabase.from("risk_scores").delete().eq("pr_id", prId);
+  const supabase = getServiceDB();
 
   const { data, error } = await supabase
     .from("risk_scores")
     .insert({
       pr_id: prId,
+      user_id: userId,
       ...scores,
     })
     .select()
@@ -31,15 +30,31 @@ export const upsertRiskScore = async (
     throw error;
   }
 
+  const keepId = data.id;
+  const { error: pruneError } = await supabase
+    .from("risk_scores")
+    .delete()
+    .eq("pr_id", prId)
+    .eq("user_id", userId)
+    .neq("id", keepId);
+
+  if (pruneError) {
+    logger.error("Failed to prune old risk scores", {
+      error: pruneError.message,
+    });
+    throw pruneError;
+  }
+
   return data;
 };
 
-export const getRiskScoreByPR = async (prId: string) => {
-  const supabase = getDB();
+export const getRiskScoreByPR = async (prId: string, userId: string) => {
+  const supabase = getServiceDB();
   const { data, error } = await supabase
     .from("risk_scores")
     .select("*")
     .eq("pr_id", prId)
+    .eq("user_id", userId)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -52,16 +67,17 @@ export const getRiskScoreByPR = async (prId: string) => {
   return data;
 };
 
-export const getRiskScoresForPRs = async (prIds: string[]) => {
+export const getRiskScoresForPRs = async (prIds: string[], userId: string) => {
   if (!prIds.length) {
     return new Map<string, RiskScoreInput>();
   }
 
-  const supabase = getDB();
+  const supabase = getServiceDB();
   const { data, error } = await supabase
     .from("risk_scores")
     .select("*")
-    .in("pr_id", prIds);
+    .in("pr_id", prIds)
+    .eq("user_id", userId);
 
   if (error) {
     logger.error("Failed to fetch risk scores", { error: error.message });

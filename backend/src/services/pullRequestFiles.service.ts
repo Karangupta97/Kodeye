@@ -1,4 +1,4 @@
-import { getDB } from "../db/supabase";
+import { getServiceDB } from "../db/supabase";
 import { logger } from "../utils/logger";
 
 export interface PullRequestFileRecord {
@@ -18,7 +18,7 @@ export const replacePullRequestFiles = async (
   pullRequestId: string,
   files: PullRequestFileRecord[]
 ) => {
-  const supabase = getDB();
+  const supabase = getServiceDB();
 
   const { error: deleteError } = await supabase
     .from("pull_request_files")
@@ -52,7 +52,7 @@ export const replacePullRequestFiles = async (
 };
 
 export const listPullRequestFiles = async (pullRequestId: string) => {
-  const supabase = getDB();
+  const supabase = getServiceDB();
   const { data, error } = await supabase
     .from("pull_request_files")
     .select("*")
@@ -71,7 +71,7 @@ export const listPullRequestFileCounts = async (pullRequestIds: string[]) => {
     return new Map<string, number>();
   }
 
-  const supabase = getDB();
+  const supabase = getServiceDB();
   const { data, error } = await supabase
     .from("pull_request_files")
     .select("pull_request_id")

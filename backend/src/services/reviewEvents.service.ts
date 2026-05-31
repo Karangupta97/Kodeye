@@ -1,9 +1,10 @@
-import { getDB } from "../db/supabase";
+import { getServiceDB } from "../db/supabase";
 import { logger } from "../utils/logger";
 
 export interface ReviewEventRecord {
   id?: string;
   pr_id: string;
+  user_id: string;
   event_type: string;
   label: string;
   detail?: string | null;
@@ -11,12 +12,13 @@ export interface ReviewEventRecord {
   created_at?: string;
 }
 
-export const listReviewEvents = async (prId: string) => {
-  const supabase = getDB();
+export const listReviewEvents = async (prId: string, userId: string) => {
+  const supabase = getServiceDB();
   const { data, error } = await supabase
     .from("review_events")
     .select("*")
     .eq("pr_id", prId)
+    .eq("user_id", userId)
     .order("created_at", { ascending: true });
 
   if (error) {
@@ -30,7 +32,7 @@ export const listReviewEvents = async (prId: string) => {
 };
 
 export const appendReviewEvent = async (event: ReviewEventRecord) => {
-  const supabase = getDB();
+  const supabase = getServiceDB();
   const { data, error } = await supabase
     .from("review_events")
     .insert(event)
@@ -47,6 +49,7 @@ export const appendReviewEvent = async (event: ReviewEventRecord) => {
 
 export const seedDefaultTimeline = async (
   prId: string,
+  userId: string,
   meta: {
     prNumber: number;
     author: string;
@@ -56,7 +59,7 @@ export const seedDefaultTimeline = async (
     riskScore: number;
   }
 ) => {
-  const existing = await listReviewEvents(prId);
+  const existing = await listReviewEvents(prId, userId);
   if (existing.length > 0) {
     return existing;
   }
@@ -64,6 +67,7 @@ export const seedDefaultTimeline = async (
   const events: ReviewEventRecord[] = [
     {
       pr_id: prId,
+      user_id: userId,
       event_type: "webhook_received",
       label: "Webhook Received",
       detail: `PR #${meta.prNumber} synchronized`,
@@ -71,6 +75,7 @@ export const seedDefaultTimeline = async (
     },
     {
       pr_id: prId,
+      user_id: userId,
       event_type: "files_fetched",
       label: "Files Fetched",
       detail: `${meta.fileCount} file(s) loaded`,
@@ -82,6 +87,7 @@ export const seedDefaultTimeline = async (
     events.push(
       {
         pr_id: prId,
+        user_id: userId,
         event_type: "ai_review_started",
         label: "AI Review Started",
         detail: "Multi-agent analysis initiated",
@@ -89,6 +95,7 @@ export const seedDefaultTimeline = async (
       },
       {
         pr_id: prId,
+        user_id: userId,
         event_type: "security_complete",
         label: "Security Analysis Complete",
         detail: "Security agent finished",
@@ -96,6 +103,7 @@ export const seedDefaultTimeline = async (
       },
       {
         pr_id: prId,
+        user_id: userId,
         event_type: "risk_score_generated",
         label: "Risk Score Generated",
         detail: `Overall risk: ${meta.riskScore}/100`,
@@ -103,6 +111,7 @@ export const seedDefaultTimeline = async (
       },
       {
         pr_id: prId,
+        user_id: userId,
         event_type: "github_comment_posted",
         label: "GitHub Comment Posted",
         detail: "Review comments published to PR",
@@ -110,6 +119,7 @@ export const seedDefaultTimeline = async (
       },
       {
         pr_id: prId,
+        user_id: userId,
         event_type: "review_completed",
         label: "Review Completed",
         detail: `${meta.issueCount} finding(s) identified`,
@@ -122,5 +132,5 @@ export const seedDefaultTimeline = async (
     await appendReviewEvent(event);
   }
 
-  return listReviewEvents(prId);
+  return listReviewEvents(prId, userId);
 };

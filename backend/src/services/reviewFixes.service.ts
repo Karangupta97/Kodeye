@@ -1,4 +1,4 @@
-import { getDB } from "../db/supabase";
+import { getServiceDB } from "../db/supabase";
 import { logger } from "../utils/logger";
 
 export interface ReviewFixRecord {
@@ -6,6 +6,7 @@ export interface ReviewFixRecord {
   finding_id: string;
   repository_id?: string | null;
   pr_id: string;
+  user_id: string;
   file_path: string;
   start_line: number;
   end_line: number;
@@ -21,12 +22,13 @@ export interface ReviewFixRecord {
   updated_at?: string;
 }
 
-export const getFixByFindingId = async (findingId: string) => {
-  const supabase = getDB();
+export const getFixByFindingId = async (findingId: string, userId: string) => {
+  const supabase = getServiceDB();
   const { data, error } = await supabase
     .from("review_fixes")
     .select("*")
     .eq("finding_id", findingId)
+    .eq("user_id", userId)
     .maybeSingle();
 
   if (error) {
@@ -37,12 +39,13 @@ export const getFixByFindingId = async (findingId: string) => {
   return data;
 };
 
-export const listFixesByPR = async (prId: string) => {
-  const supabase = getDB();
+export const listFixesByPR = async (prId: string, userId: string) => {
+  const supabase = getServiceDB();
   const { data, error } = await supabase
     .from("review_fixes")
     .select("*")
     .eq("pr_id", prId)
+    .eq("user_id", userId)
     .order("confidence", { ascending: false });
 
   if (error) {
@@ -54,12 +57,13 @@ export const listFixesByPR = async (prId: string) => {
 };
 
 export const upsertReviewFix = async (fix: ReviewFixRecord) => {
-  const supabase = getDB();
+  const supabase = getServiceDB();
 
   const { data: existing } = await supabase
     .from("review_fixes")
     .select("id")
     .eq("finding_id", fix.finding_id)
+    .eq("user_id", fix.user_id)
     .maybeSingle();
 
   const row = {
@@ -72,6 +76,7 @@ export const upsertReviewFix = async (fix: ReviewFixRecord) => {
       .from("review_fixes")
       .update(row)
       .eq("finding_id", fix.finding_id)
+      .eq("user_id", fix.user_id)
       .select()
       .single();
 
@@ -93,9 +98,13 @@ export const upsertReviewFix = async (fix: ReviewFixRecord) => {
   return data;
 };
 
-export const deleteFixesByPR = async (prId: string) => {
-  const supabase = getDB();
-  const { error } = await supabase.from("review_fixes").delete().eq("pr_id", prId);
+export const deleteFixesByPR = async (prId: string, userId: string) => {
+  const supabase = getServiceDB();
+  const { error } = await supabase
+    .from("review_fixes")
+    .delete()
+    .eq("pr_id", prId)
+    .eq("user_id", userId);
 
   if (error) {
     logger.error("Failed to delete fixes by PR", { error: error.message });
@@ -105,9 +114,10 @@ export const deleteFixesByPR = async (prId: string) => {
 
 export const updateFixStatus = async (
   findingId: string,
+  userId: string,
   status: "applied" | "rejected" | "suggested"
 ) => {
-  const supabase = getDB();
+  const supabase = getServiceDB();
   const patch: Record<string, string> = {
     status,
     updated_at: new Date().toISOString(),
@@ -119,6 +129,7 @@ export const updateFixStatus = async (
     .from("review_fixes")
     .update(patch)
     .eq("finding_id", findingId)
+    .eq("user_id", userId)
     .select()
     .single();
 
@@ -126,8 +137,8 @@ export const updateFixStatus = async (
   return data;
 };
 
-export const getFixStatsForPR = async (prId: string) => {
-  const fixes = await listFixesByPR(prId);
+export const getFixStatsForPR = async (prId: string, userId: string) => {
+  const fixes = await listFixesByPR(prId, userId);
   const highConfidence = fixes.filter((f) => f.confidence >= 0.75).length;
   const applied = fixes.filter((f) => f.status === "applied").length;
   const rejected = fixes.filter((f) => f.status === "rejected").length;

@@ -1,4 +1,4 @@
-import { getDB } from "../db/supabase";
+import { getServiceDB } from "../db/supabase";
 import { logger } from "../utils/logger";
 
 export interface WebhookLogRecord {
@@ -6,10 +6,11 @@ export interface WebhookLogRecord {
   action: string | null;
   repository: string | null;
   payload: unknown;
+  user_id?: string | null;
 }
 
 export const logWebhookEvent = async (log: WebhookLogRecord) => {
-  const supabase = getDB();
+  const supabase = getServiceDB();
   const { error } = await supabase.from("webhook_logs").insert(log);
 
   if (error) {
@@ -18,11 +19,12 @@ export const logWebhookEvent = async (log: WebhookLogRecord) => {
   }
 };
 
-export const listWebhookLogs = async (limit = 25) => {
-  const supabase = getDB();
+export const listWebhookLogs = async (userId: string, limit = 25) => {
+  const supabase = getServiceDB();
   const { data, error } = await supabase
     .from("webhook_logs")
     .select("*")
+    .eq("user_id", userId)
     .order("created_at", { ascending: false })
     .limit(limit);
 

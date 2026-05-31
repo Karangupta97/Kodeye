@@ -1,4 +1,4 @@
-import { getDB } from "../db/supabase";
+import { getServiceDB } from "../db/supabase";
 import { listWebhookLogs } from "./webhookLogs.service";
 import { logger } from "../utils/logger";
 
@@ -263,11 +263,11 @@ export const buildActivityGroupHeader = (items: ActivityFeedItem[]): string | nu
   return `${items.length} ${items[0].group_label} on ${items[0].subtitle} at ${latest}`;
 };
 
-export const getActivityFeed = async (limit = 30) => {
-  const supabase = getDB();
+export const getActivityFeed = async (userId: string, limit = 30) => {
+  const supabase = getServiceDB();
 
   const [webhookLogs, reviewResult] = await Promise.all([
-    listWebhookLogs(Math.min(limit * 2, 50)),
+    listWebhookLogs(userId, Math.min(limit * 2, 50)),
     supabase
       .from("review_events")
       .select(
@@ -288,6 +288,7 @@ export const getActivityFeed = async (limit = 30) => {
         )
       `
       )
+      .eq("user_id", userId)
       .in("event_type", Array.from(REAL_REVIEW_EVENT_TYPES))
       .order("created_at", { ascending: false })
       .limit(limit),

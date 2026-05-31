@@ -1,18 +1,23 @@
-import { getDB } from "../db/supabase";
+import { getServiceDB } from "../db/supabase";
 import { getTotalReviewStats } from "./aiReviews.service";
 
-export const getMetrics = async () => {
-  const supabase = getDB();
+export const getMetrics = async (userId: string) => {
+  const supabase = getServiceDB();
 
   const [repos, prs, logs, reviewStats] = await Promise.all([
-    supabase.from("repositories").select("id", { count: "exact", head: true }),
+    supabase
+      .from("repositories")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId),
     supabase
       .from("pull_requests")
-      .select("id", { count: "exact", head: true }),
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId),
     supabase
       .from("webhook_logs")
-      .select("id", { count: "exact", head: true }),
-    getTotalReviewStats(),
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId),
+    getTotalReviewStats(userId),
   ]);
 
   if (repos.error || prs.error || logs.error) {

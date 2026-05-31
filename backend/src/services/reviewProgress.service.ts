@@ -29,6 +29,19 @@ const emitter = new EventEmitter();
 emitter.setMaxListeners(100);
 
 const progressByPr = new Map<string, ReviewProgressUpdate>();
+const activeReviewLocks = new Set<string>();
+
+export const tryAcquireReviewLock = (prId: string): boolean => {
+  if (activeReviewLocks.has(prId)) {
+    return false;
+  }
+  activeReviewLocks.add(prId);
+  return true;
+};
+
+export const releaseReviewLock = (prId: string) => {
+  activeReviewLocks.delete(prId);
+};
 
 export const setReviewProgress = (update: ReviewProgressUpdate) => {
   progressByPr.set(update.prId, update);

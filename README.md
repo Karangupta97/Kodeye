@@ -1,4 +1,14 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Kodeye AI
+
+AI-powered GitHub pull request reviews with **per-user data isolation**.
+
+## Auth & multi-tenant setup
+
+- **Anyone can sign in:** GitHub **OAuth App** → Supabase (see [docs/AUTH_AND_MULTI_TENANT.md](docs/AUTH_AND_MULTI_TENANT.md))
+- **Repos & webhooks:** public **GitHub App** install (do not use GitHub App credentials in Supabase login)
+- **No cross-user data:** migration `backend/supabase/migrations/006_multi_tenant_security.sql`
+
+Copy env templates: `frontend/.env.example`, `backend/.env.example`
 
 ## Getting Started
 

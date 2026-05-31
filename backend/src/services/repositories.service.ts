@@ -1,4 +1,4 @@
-import { getDB } from "../db/supabase";
+import { getServiceDB } from "../db/supabase";
 import { logger } from "../utils/logger";
 
 export interface RepositoryRecord {
@@ -13,7 +13,7 @@ export interface RepositoryRecord {
 }
 
 export const upsertRepository = async (repo: RepositoryRecord) => {
-  const supabase = getDB();
+  const supabase = getServiceDB();
   const { data, error } = await supabase
     .from("repositories")
     .upsert(repo, { onConflict: "github_repo_id" })
@@ -29,7 +29,7 @@ export const upsertRepository = async (repo: RepositoryRecord) => {
 };
 
 export const removeRepositoryByGithubId = async (githubRepoId: number) => {
-  const supabase = getDB();
+  const supabase = getServiceDB();
   const { error } = await supabase
     .from("repositories")
     .delete()
@@ -41,11 +41,12 @@ export const removeRepositoryByGithubId = async (githubRepoId: number) => {
   }
 };
 
-export const listRepositories = async () => {
-  const supabase = getDB();
+export const listRepositories = async (userId: string) => {
+  const supabase = getServiceDB();
   const { data, error } = await supabase
     .from("repositories")
     .select("*")
+    .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -56,13 +57,14 @@ export const listRepositories = async () => {
   return data || [];
 };
 
-export const getRepositoryById = async (id: string) => {
-  const supabase = getDB();
+export const getRepositoryById = async (id: string, userId: string) => {
+  const supabase = getServiceDB();
   const { data, error } = await supabase
     .from("repositories")
     .select("*")
     .eq("id", id)
-    .single();
+    .eq("user_id", userId)
+    .maybeSingle();
 
   if (error) {
     logger.error("Failed to fetch repository", { error: error.message });
@@ -73,12 +75,12 @@ export const getRepositoryById = async (id: string) => {
 };
 
 export const getRepositoryByGithubId = async (githubRepoId: number) => {
-  const supabase = getDB();
+  const supabase = getServiceDB();
   const { data, error } = await supabase
     .from("repositories")
     .select("*")
     .eq("github_repo_id", githubRepoId)
-    .single();
+    .maybeSingle();
 
   if (error) {
     logger.error("Failed to fetch repository by GitHub id", {

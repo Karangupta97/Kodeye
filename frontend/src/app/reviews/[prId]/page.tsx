@@ -29,8 +29,9 @@ import {
 } from "@/lib/review-api";
 import ReviewAnalyticsPanel from "@/components/review/ReviewAnalyticsPanel";
 import ReviewProcessing from "@/components/review/ReviewProcessing";
-import DiffViewer from "@/components/review/DiffViewer";
+import ReviewFilesPanel from "@/components/review/ReviewFilesPanel";
 import FindingCard from "@/components/review/FindingCard";
+import { mergeReviewFiles } from "@/lib/review-bundle-utils";
 import FixSuggestionsTab from "@/components/review/FixSuggestionsTab";
 import ReviewDebugPanel from "@/components/review/ReviewDebugPanel";
 
@@ -114,34 +115,30 @@ export default function ReviewPage() {
     }));
   }, [bundle]);
 
-  const fileRiskScores = useMemo(() => {
-    if (!bundle) return new Map<string, number>();
-    const scores = new Map<string, number>();
-    for (const f of bundle.findings) {
-      const weight =
-        f.severity === "critical"
-          ? 40
-          : f.severity === "high"
-            ? 25
-            : f.severity === "medium"
-              ? 12
-              : 5;
-      scores.set(f.file, (scores.get(f.file) || 0) + weight);
-    }
-    return scores;
-  }, [bundle]);
+  const mergedFiles = useMemo(
+    () => (bundle ? mergeReviewFiles(bundle.files, bundle.findings) : []),
+    [bundle]
+  );
 
   const handleReanalyze = async () => {
     setIsReanalyzing(true);
     try {
-      const res = await reanalyzeReview(prId);
-      if (!res.ok) throw new Error("Failed");
+      await reanalyzeReview(prId);
       toast.success("AI analysis started");
       await reload();
     } catch {
       toast.error("Failed to start analysis");
     } finally {
       setIsReanalyzing(false);
+    }
+  };
+
+  const handleExport = async (fmt: "json" | "markdown" | "pdf") => {
+    try {
+      const url = await exportReviewUrl(prId, fmt);
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch {
+      toast.error("Export failed — sign in and try again");
     }
   };
 
@@ -313,15 +310,14 @@ export default function ReviewPage() {
               </button>
               <div className="hidden group-hover:block absolute right-0 top-full mt-1 z-50 dropdown-menu py-1 min-w-[120px]">
                 {(["json", "markdown", "pdf"] as const).map((fmt) => (
-                  <a
+                  <button
                     key={fmt}
-                    href={exportReviewUrl(prId, fmt)}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="dropdown-item text-xs capitalize"
+                    type="button"
+                    onClick={() => handleExport(fmt)}
+                    className="dropdown-item text-xs capitalize w-full text-left"
                   >
                     {fmt.toUpperCase()}
-                  </a>
+                  </button>
                 ))}
               </div>
             </div>
@@ -387,7 +383,7 @@ export default function ReviewPage() {
                 placeholder="Search findings..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-8 pr-3 py-2 text-sm rounded-lg border border-kd-border bg-kd-bg/50 text-kd-text"
+                className="kd-input w-full pl-8 pr-3 py-2 text-sm"
               />
             </div>
             {(["critical", "high", "medium", "low"] as const).map((s) => (
@@ -423,6 +419,7 @@ export default function ReviewPage() {
           {activeTab === "overview" && (
             <OverviewTab
               bundle={bundle}
+              mergedFiles={mergedFiles}
               findings={filteredFindings}
               filesWithIssues={filesWithIssues}
               onFileClick={scrollToFile}
@@ -432,11 +429,12 @@ export default function ReviewPage() {
           )}
 
           {activeTab === "files" && (
-            <FilesTab
+            <ReviewFilesPanel
               bundle={bundle}
               selectedFile={selectedFile}
-              fileRiskScores={fileRiskScores}
               onSelectFile={setSelectedFile}
+              severityFilter={severityFilter}
+              loading={refreshing}
             />
           )}
 
@@ -470,6 +468,7 @@ export default function ReviewPage() {
             <div className="mt-4 pt-4 border-t border-kd-border">
               <ReviewAnalyticsPanel
                 bundle={bundle}
+                loading={refreshing}
                 activeSeverity={severityFilter}
                 activeCategory={categoryFilter}
                 activeAgent={agentFilter}
@@ -485,9 +484,10 @@ export default function ReviewPage() {
         </div>
 
         {/* Right analytics — desktop */}
-        <div className="review-analytics-wrap hidden xl:block w-80 shrink-0 overflow-y-auto border-l border-kd-border p-4 bg-kd-surface/20">
+        <div className="review-analytics-wrap hidden xl:block w-[22rem] shrink-0 border-l border-kd-border p-4">
           <ReviewAnalyticsPanel
             bundle={bundle}
+            loading={refreshing}
             activeSeverity={severityFilter}
             activeCategory={categoryFilter}
             activeAgent={agentFilter}
@@ -506,6 +506,7 @@ export default function ReviewPage() {
 
 function OverviewTab({
   bundle,
+  mergedFiles,
   findings,
   filesWithIssues,
   onFileClick,
@@ -513,6 +514,7 @@ function OverviewTab({
   onReload,
 }: {
   bundle: NonNullable<ReturnType<typeof useReviewBundle>["bundle"]>;
+  mergedFiles: ReturnType<typeof mergeReviewFiles>;
   findings: ReviewFinding[];
   filesWithIssues: Array<{
     file: string;
@@ -553,21 +555,23 @@ function OverviewTab({
   return (
     <>
       {filesWithIssues.length > 0 && (
-        <div className="glass-card p-4">
+        <div className="rounded-xl border border-kd-border bg-kd-surface p-4">
           <h3 className="text-sm font-semibold text-kd-text mb-3">
             Files with issues
           </h3>
           <div className="space-y-2">
             {filesWithIssues.map((item) => {
-              const fileRecord = bundle.files.find((f) => f.filename === item.file);
+              const fileRecord = mergedFiles.find(
+                (f) => f.filename === item.file
+              );
               return (
                 <button
                   key={item.file}
                   type="button"
                   onClick={() => onFileClick(item.file, fileRecord?.id)}
-                  className="w-full flex items-center justify-between gap-2 p-2.5 rounded-lg hover:bg-kd-primary/10 border border-kd-border/50 text-left transition-colors"
+                  className="w-full flex items-center justify-between gap-2 p-2.5 rounded-lg bg-kd-surface hover:bg-kd-card border border-kd-border text-left transition-colors"
                 >
-                  <code className="text-xs text-kd-accent truncate">{item.file}</code>
+                  <code className="text-xs text-kd-primary truncate">{item.file}</code>
                   <div className="flex gap-2 shrink-0 text-[10px]">
                     {item.critical > 0 && (
                       <span className="text-kd-critical">{item.critical} crit</span>
@@ -602,90 +606,6 @@ function OverviewTab({
         )}
       </div>
     </>
-  );
-}
-
-function FilesTab({
-  bundle,
-  selectedFile,
-  fileRiskScores,
-  onSelectFile,
-}: {
-  bundle: NonNullable<ReturnType<typeof useReviewBundle>["bundle"]>;
-  selectedFile: string | null;
-  fileRiskScores: Map<string, number>;
-  onSelectFile: (f: string | null) => void;
-}) {
-  const files = selectedFile
-    ? bundle.files.filter((f) => f.filename === selectedFile)
-    : bundle.files;
-
-  if (bundle.files.length === 0) {
-    return (
-      <div className="glass-card p-8 text-center text-kd-text-muted text-sm">
-        No files changed in this pull request.
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex gap-4 min-h-0">
-      <div className="w-56 shrink-0 space-y-1 hidden md:block">
-        {bundle.files.map((f) => (
-          <button
-            key={f.id}
-            type="button"
-            onClick={() => onSelectFile(f.filename)}
-            className={`w-full text-left text-xs px-2 py-2 rounded-lg truncate font-mono ${
-              selectedFile === f.filename
-                ? "bg-kd-primary/15 text-kd-glow"
-                : "hover:bg-kd-card/50 text-kd-text-muted"
-            }`}
-          >
-            {f.filename}
-          </button>
-        ))}
-      </div>
-      <div className="flex-1 space-y-4 min-w-0">
-        {files.map((file) => {
-          const fileFindings = bundle.findings.filter(
-            (r) => r.file === file.filename
-          );
-          const comments = fileFindings.map((r) => ({
-            line: r.line,
-            severity: r.severity,
-            issue: r.issue,
-            why: r.why,
-            fix: r.fix,
-            confidence: r.confidence,
-            category: r.category,
-          }));
-          const risk = Math.min(100, fileRiskScores.get(file.filename) || 0);
-
-          return file.patch ? (
-            <DiffViewer
-              key={file.id}
-              id={file.id}
-              filename={file.filename}
-              patch={file.patch}
-              comments={comments}
-              riskScore={risk || undefined}
-            />
-          ) : (
-            <div
-              key={file.id}
-              className="glass-card p-4 text-sm text-kd-text-muted"
-            >
-              <p className="font-mono text-kd-text">{file.filename}</p>
-              <p className="text-xs mt-1">
-                {file.status} · +{file.additions}/-{file.deletions} · No diff
-                preview
-              </p>
-            </div>
-          );
-        })}
-      </div>
-    </div>
   );
 }
 

@@ -1,3 +1,4 @@
+import { createClient } from "@/lib/supabase/client";
 import { API_BASE_URL, fetchApi } from "./api";
 
 export interface ReviewAiFix {
@@ -113,7 +114,21 @@ export interface ReviewBundle {
     timestamp?: string;
     status: string;
     event_type?: string;
+    duration_ms?: number;
+    icon?: string;
   }>;
+  review_metadata?: {
+    repository: string;
+    branch: string;
+    base_branch: string;
+    commit_count: number;
+    files_changed: number;
+    lines_added: number;
+    lines_removed: number;
+    review_duration_ms: number | null;
+    ai_model: string;
+    reviewed_at: string;
+  };
   progress: {
     state: string;
     message: string;
@@ -154,27 +169,32 @@ export const fetchReviewBundle = (prId: string, debug = false) =>
   fetchApi<ReviewBundle>(`/api/reviews/${prId}${debug ? "?debug=1" : ""}`);
 
 export const reanalyzeReview = (prId: string) =>
-  fetch(`${API_BASE_URL}/api/reviews/${prId}/reanalyze`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-  });
+  fetchApi(`/api/reviews/${prId}/reanalyze`, { method: "POST" });
 
 export const shareReview = (prId: string) =>
   fetchApi<{ share_url: string }>(`/api/reviews/${prId}/share`, {
     method: "POST",
   });
 
-export const exportReviewUrl = (prId: string, format: "json" | "markdown" | "pdf") =>
-  `${API_BASE_URL}/api/reviews/${prId}/export?format=${format}`;
+export const exportReviewUrl = async (
+  prId: string,
+  format: "json" | "markdown" | "pdf"
+) => {
+  const supabase = createClient();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  const tokenQuery = token
+    ? `&access_token=${encodeURIComponent(token)}`
+    : "";
+  return `${API_BASE_URL}/api/reviews/${prId}/export?format=${format}${tokenQuery}`;
+};
 
-export const updateFindingInteraction = (
-  findingId: string,
-  action: string,
-  userId?: string
-) =>
+export const updateFindingInteraction = (findingId: string, action: string) =>
   fetchApi(`/api/findings/${findingId}/interaction`, {
     method: "PATCH",
-    body: JSON.stringify({ action, user_id: userId }),
+    body: JSON.stringify({ action }),
   });
 
 export const fetchFindingFix = (findingId: string) =>
@@ -201,12 +221,20 @@ export const updateFixStatus = (
     body: JSON.stringify({ status }),
   });
 
-export const subscribeReviewStream = (
+export const subscribeReviewStream = async (
   prId: string,
   onUpdate: (data: ReviewBundle["progress"]) => void
 ) => {
+  const supabase = createClient();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const tokenQuery = session?.access_token
+    ? `?access_token=${encodeURIComponent(session.access_token)}`
+    : "";
+
   const source = new EventSource(
-    `${API_BASE_URL}/api/reviews/${prId}/stream`
+    `${API_BASE_URL}/api/reviews/${prId}/stream${tokenQuery}`
   );
 
   source.onmessage = (event) => {

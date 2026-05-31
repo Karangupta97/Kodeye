@@ -1,4 +1,4 @@
-import { getDB } from "../db/supabase";
+import { getServiceDB } from "../db/supabase";
 import { logger } from "../utils/logger";
 
 export type FindingAction =
@@ -10,15 +10,15 @@ export type FindingAction =
 export const upsertFindingInteraction = async (
   findingId: string,
   action: FindingAction,
-  userId?: string
+  userId: string
 ) => {
-  const supabase = getDB();
+  const supabase = getServiceDB();
   const { data, error } = await supabase
     .from("finding_interactions")
     .upsert(
       {
         finding_id: findingId,
-        user_id: userId || "anonymous",
+        user_id: userId,
         action,
       },
       { onConflict: "finding_id,user_id,action" }
@@ -34,16 +34,20 @@ export const upsertFindingInteraction = async (
   return { ...data, persisted: true };
 };
 
-export const listInteractionsForFindings = async (findingIds: string[]) => {
+export const listInteractionsForFindings = async (
+  findingIds: string[],
+  userId: string
+) => {
   if (!findingIds.length) {
     return new Map<string, string[]>();
   }
 
-  const supabase = getDB();
+  const supabase = getServiceDB();
   const { data, error } = await supabase
     .from("finding_interactions")
     .select("finding_id, action")
-    .in("finding_id", findingIds);
+    .in("finding_id", findingIds)
+    .eq("user_id", userId);
 
   if (error) {
     return new Map<string, string[]>();

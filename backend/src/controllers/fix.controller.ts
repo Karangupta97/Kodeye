@@ -1,14 +1,18 @@
 import { Request, Response } from "express";
+import { getAuthedUserId } from "../middleware/requireAuth";
 import { logger } from "../utils/logger";
-import { getPullRequestById } from "../services/pullRequests.service";
-import { getRepositoryById } from "../services/repositories.service";
+import {
+  requirePullRequest,
+  requireRepository,
+  ResourceNotFoundError,
+} from "../utils/ownership";
 import { listPullRequestFiles } from "../services/pullRequestFiles.service";
 import {
   getFixByFindingId,
   listFixesByPR,
   updateFixStatus,
 } from "../services/reviewFixes.service";
-import { getDB } from "../db/supabase";
+import { getAiReviewById } from "../services/aiReviews.service";
 import {
   generateFixForFinding,
   formatGitHubSuggestionBody,
@@ -43,7 +47,7 @@ export const getFindingFix = async (req: Request, res: Response) => {
     : req.params.findingId;
 
   try {
-    const fix = await getFixByFindingId(findingId);
+    const fix = await getFixByFindingId(findingId, getAuthedUserId(req));
     if (!fix) {
       return res.status(404).json({ error: "No fix generated for this finding" });
     }
@@ -59,21 +63,16 @@ export const generateFindingFix = async (req: Request, res: Response) => {
     ? req.params.findingId[0]
     : req.params.findingId;
   const force = req.query.force === "1";
+  const userId = getAuthedUserId(req);
 
   try {
-    const supabase = getDB();
-    const { data: finding, error } = await supabase
-      .from("ai_reviews")
-      .select("*")
-      .eq("id", findingId)
-      .single();
-
-    if (error || !finding) {
+    const finding = await getAiReviewById(findingId, userId);
+    if (!finding) {
       return res.status(404).json({ error: "Finding not found" });
     }
 
-    const pullRequest = await getPullRequestById(finding.pr_id);
-    const repository = await getRepositoryById(pullRequest.repo_id);
+    const pullRequest = await requirePullRequest(finding.pr_id, userId);
+    const repository = await requireRepository(pullRequest.repo_id, userId);
     const files = await listPullRequestFiles(finding.pr_id);
 
     const fix = await generateFixForFinding({
@@ -89,6 +88,7 @@ export const generateFindingFix = async (req: Request, res: Response) => {
         fix: finding.fix,
         confidence: finding.confidence,
       },
+      userId,
       repositoryId: repository.id,
       files,
       metadata: {
@@ -106,6 +106,9 @@ export const generateFindingFix = async (req: Request, res: Response) => {
 
     res.json({ data: toFixResponse(fix) });
   } catch (error) {
+    if (error instanceof ResourceNotFoundError) {
+      return res.status(404).json({ error: "Not found" });
+    }
     logger.error("POST generate fix failed", { findingId, error: (error as Error).message });
     res.status(500).json({ error: "Fix generation failed" });
   }
@@ -117,13 +120,13 @@ export const postGitHubFixSuggestion = async (req: Request, res: Response) => {
     : req.params.findingId;
 
   try {
-    const fix = await getFixByFindingId(findingId);
+    const fix = await getFixByFindingId(findingId, getAuthedUserId(req));
     if (!fix) {
       return res.status(404).json({ error: "No fix available" });
     }
 
-    const pullRequest = await getPullRequestById(fix.pr_id);
-    const repository = await getRepositoryById(pullRequest.repo_id);
+    const pullRequest = await requirePullRequest(fix.pr_id, getAuthedUserId(req));
+    const repository = await requireRepository(pullRequest.repo_id, getAuthedUserId(req));
 
     const ghPR = await fetchGHPullRequest({
       installationId: repository.installation_id,
@@ -159,6 +162,9 @@ export const postGitHubFixSuggestion = async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
+    if (error instanceof ResourceNotFoundError) {
+      return res.status(404).json({ error: "Not found" });
+    }
     logger.error("POST GitHub suggestion failed", {
       findingId,
       error: (error as Error).message,
@@ -178,9 +184,9 @@ export const updateFixStatusHandler = async (req: Request, res: Response) => {
   }
 
   try {
-    const fix = await updateFixStatus(findingId, status);
+    const fix = await updateFixStatus(findingId, getAuthedUserId(req), status);
     res.json({ data: toFixResponse(fix) });
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: "Failed to update fix status" });
   }
 };
@@ -188,9 +194,13 @@ export const updateFixStatusHandler = async (req: Request, res: Response) => {
 export const listPRFixes = async (req: Request, res: Response) => {
   const prId = Array.isArray(req.params.prId) ? req.params.prId[0] : req.params.prId;
   try {
-    const fixes = await listFixesByPR(prId);
+    await requirePullRequest(prId, getAuthedUserId(req));
+    const fixes = await listFixesByPR(prId, getAuthedUserId(req));
     res.json({ data: fixes.map(toFixResponse) });
-  } catch {
+  } catch (error) {
+    if (error instanceof ResourceNotFoundError) {
+      return res.status(404).json({ error: "Pull request not found" });
+    }
     res.status(500).json({ error: "Failed to list fixes" });
   }
 };

@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { logger } from "../utils/logger";
 import { logWebhookEvent } from "../services/webhookLogs.service";
+import { resolveSupabaseUserId } from "../services/userResolution.service";
 import {
   handleInstallationEvent,
   handleInstallationRepositoriesEvent,
@@ -39,12 +40,16 @@ export const handleGithubWebhook = async (req: Request, res: Response) => {
     githubPrId,
   });
 
+  const senderLogin = payload.sender?.login as string | undefined;
+  const userId = await resolveSupabaseUserId(senderLogin);
+
   try {
     await logWebhookEvent({
       event_type: eventType,
       action,
       repository,
       payload,
+      user_id: userId,
     });
   } catch (error) {
     logger.error("Failed to store webhook log", {

@@ -18,7 +18,11 @@ import {
 import { postInlineComment } from "../github/comment.service";
 import { logWebhookEvent } from "../services/webhookLogs.service";
 import { getInstallationOctokit } from "../github/octokit";
-import { insertReviews, deleteReviewsByPR } from "../services/aiReviews.service";
+import {
+  insertReviews,
+  deleteReviewsByPR,
+  deleteReviewsByPRExcept,
+} from "../services/aiReviews.service";
 import { upsertRiskScore } from "../services/riskScores.service";
 import { deleteFixesByPR, generateFixesForPR } from "./fixes/fix.service";
 import { parsePatch } from "../utils/diff";
@@ -33,6 +37,7 @@ export interface AIReviewResult {
 
 export interface ReviewRequest {
   prId: string;
+  userId: string;
   repositoryId: string;
   prNumber: number;
   prTitle: string;
@@ -55,7 +60,7 @@ export const runAIReview = async (
   request: ReviewRequest
 ): Promise<AIReviewResult> => {
   const startTime = Date.now();
-  const { prId, prNumber } = request;
+  const { prId, prNumber, userId } = request;
 
   logger.info("AI Review: Starting", {
     prId,
@@ -160,9 +165,6 @@ export const runAIReview = async (
   }> = [];
 
   try {
-    await deleteFixesByPR(prId);
-    await deleteReviewsByPR(prId);
-
     if (deduplicated.length > 0) {
       insertedFindings = await insertReviews(
         prId,
@@ -175,7 +177,8 @@ export const runAIReview = async (
           why: issue.why,
           fix: issue.fix,
           confidence: issue.confidence,
-        }))
+        })),
+        userId
       );
 
       if (insertedFindings.length !== deduplicated.length) {
@@ -184,14 +187,28 @@ export const runAIReview = async (
           inserted: insertedFindings.length,
         });
       }
+
+      await deleteReviewsByPRExcept(
+        prId,
+        userId,
+        insertedFindings.map((row) => row.id)
+      );
+    } else {
+      await deleteReviewsByPR(prId, userId);
     }
 
-    await upsertRiskScore(prId, {
-      overall_score: riskScores.overallRisk,
-      security_score: riskScores.securityRisk,
-      performance_score: riskScores.performanceRisk,
-      maintainability_score: riskScores.maintainability,
-    });
+    await deleteFixesByPR(prId, userId);
+
+    await upsertRiskScore(
+      prId,
+      {
+        overall_score: riskScores.overallRisk,
+        security_score: riskScores.securityRisk,
+        performance_score: riskScores.performanceRisk,
+        maintainability_score: riskScores.maintainability,
+      },
+      userId
+    );
 
     logger.info("AI Review: Results stored in database", {
       prId,
@@ -211,6 +228,7 @@ export const runAIReview = async (
     try {
       const fixResult = await generateFixesForPR({
         prId,
+        userId,
         repositoryId: request.repositoryId,
         findings: insertedFindings.map((row) => ({
           id: row.id,
@@ -344,6 +362,7 @@ export const runAIReview = async (
       event_type: "kodeye_ai_review",
       action: commentsPosted > 0 ? "comments_posted" : "completed",
       repository: `${request.owner}/${request.repo}`,
+      user_id: userId,
       payload: {
         pull_request: { number: request.prNumber },
         comments_posted: commentsPosted,

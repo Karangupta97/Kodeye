@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { requireAuth } from "../middleware/requireAuth";
 import { getRepositories, getRepository } from "../controllers/repositories.controller";
 import {
   getPullRequest,
@@ -30,6 +31,8 @@ import {
 } from "../controllers/fix.controller";
 
 const router = Router();
+
+router.use(requireAuth);
 
 router.get("/repositories", getRepositories);
 router.get("/repositories/:id", getRepository);

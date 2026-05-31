@@ -1,30 +1,73 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
-let supabase: SupabaseClient | null = null;
+let serviceClient: SupabaseClient | null = null;
+let authClient: SupabaseClient | null = null;
 
-export const connectDB = (): SupabaseClient => {
-  if (supabase) {
-    return supabase;
+const requireSupabaseUrl = (): string => {
+  const url = process.env.SUPABASE_URL;
+  if (!url) {
+    throw new Error("Missing SUPABASE_URL environment variable.");
+  }
+  return url;
+};
+
+/** Service role — webhooks and system writes only (bypasses RLS). */
+export const getServiceDB = (): SupabaseClient => {
+  if (serviceClient) {
+    return serviceClient;
   }
 
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
-
-  if (!supabaseUrl || !supabaseKey) {
+  const supabaseUrl = requireSupabaseUrl();
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!serviceKey) {
     throw new Error(
-      "Missing Supabase env vars. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_ANON_KEY).",
+      "Missing SUPABASE_SERVICE_ROLE_KEY for service database access.",
     );
   }
 
-  supabase = createClient(supabaseUrl, supabaseKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
+  serviceClient = createClient(supabaseUrl, serviceKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  return supabase;
+  return serviceClient;
 };
 
-export const getDB = (): SupabaseClient => connectDB();
+/** Anon key — JWT validation in requireAuth (no elevated access). */
+export const getAuthDB = (): SupabaseClient => {
+  if (authClient) {
+    return authClient;
+  }
+
+  const supabaseUrl = requireSupabaseUrl();
+  const anonKey = process.env.SUPABASE_ANON_KEY;
+  if (!anonKey) {
+    throw new Error("Missing SUPABASE_ANON_KEY for auth validation.");
+  }
+
+  authClient = createClient(supabaseUrl, anonKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+
+  return authClient;
+};
+
+/** User-scoped client — RLS enforced via the user's access token. */
+export const getUserDB = (accessToken: string): SupabaseClient => {
+  const supabaseUrl = requireSupabaseUrl();
+  const anonKey = process.env.SUPABASE_ANON_KEY;
+  if (!anonKey) {
+    throw new Error("Missing SUPABASE_ANON_KEY for user-scoped database access.");
+  }
+
+  return createClient(supabaseUrl, anonKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+    global: {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    },
+  });
+};
+
+/** @deprecated Use getServiceDB() for writes or pass userId filters explicitly. */
+export const getDB = (): SupabaseClient => getServiceDB();
+
+export const connectDB = (): SupabaseClient => getServiceDB();

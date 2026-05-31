@@ -1,19 +1,19 @@
 import { Request, Response } from "express";
+import { getAuthedUserId } from "../middleware/requireAuth";
 import {
   listPullRequests,
-  getPullRequestById,
   syncPullRequestsFromGithub,
 } from "../services/pullRequests.service";
 import { listRepositories } from "../services/repositories.service";
 import {
   listPullRequestFiles,
-  listPullRequestFileCounts,
 } from "../services/pullRequestFiles.service";
 import { countReviewsByPR } from "../services/aiReviews.service";
 import { getRiskScoresForPRs } from "../services/riskScores.service";
 import { listReviewsByPR } from "../services/aiReviews.service";
 import { getRiskScoreByPR } from "../services/riskScores.service";
 import { logger } from "../utils/logger";
+import { requirePullRequest, ResourceNotFoundError } from "../utils/ownership";
 
 const toPullRequestResponse = (
   pullRequest: any,
@@ -64,26 +64,28 @@ export const getPullRequests = async (req: Request, res: Response) => {
   try {
     const repoId = req.query.repoId as string | undefined;
     const forceSync = req.query.sync === "1";
+    const userId = getAuthedUserId(req);
 
     logger.info("GET /api/pull-requests request", {
       repoId: repoId || null,
       forceSync,
+      userId,
     });
 
-    let pullRequests = await listPullRequests(repoId);
-    if (!pullRequests.length || forceSync) {
-      const syncResult = await syncPullRequestsFromGithub(repoId);
+    let pullRequests = await listPullRequests(userId, repoId);
+    if (forceSync) {
+      const syncResult = await syncPullRequestsFromGithub(userId, repoId);
       logger.info("Pull request sync completed", syncResult);
-      pullRequests = await listPullRequests(repoId);
+      pullRequests = await listPullRequests(userId, repoId);
     }
 
-    const repositories = await listRepositories();
+    const repositories = await listRepositories(userId);
     const repoMap = new Map(repositories.map((repo) => [repo.id, repo]));
 
     const prIds = pullRequests.map((pr) => pr.id);
     const [reviewCounts, riskScores] = await Promise.all([
-      countReviewsByPR(prIds),
-      getRiskScoresForPRs(prIds),
+      countReviewsByPR(prIds, userId),
+      getRiskScoresForPRs(prIds, userId),
     ]);
 
     const enriched = pullRequests.map((pullRequest) =>
@@ -116,14 +118,15 @@ export const getPullRequests = async (req: Request, res: Response) => {
 export const getPullRequest = async (req: Request, res: Response) => {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const pullRequest = await getPullRequestById(id);
-    const repositories = await listRepositories();
+    const userId = getAuthedUserId(req);
+    const pullRequest = await requirePullRequest(id, userId);
+    const repositories = await listRepositories(userId);
     const repoMap = new Map(repositories.map((repo) => [repo.id, repo]));
     const files = await listPullRequestFiles(id);
 
     const [reviews, riskScore] = await Promise.all([
-      listReviewsByPR(id),
-      getRiskScoreByPR(id),
+      listReviewsByPR(id, userId),
+      getRiskScoreByPR(id, userId),
     ]);
 
     const issueCounts = {
@@ -147,6 +150,9 @@ export const getPullRequest = async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
+    if (error instanceof ResourceNotFoundError) {
+      return res.status(404).json({ error: "Pull request not found" });
+    }
     logger.error("GET /api/pull-requests/:id failed", {
       id: req.params.id,
       error: (error as Error).message,
@@ -158,9 +164,13 @@ export const getPullRequest = async (req: Request, res: Response) => {
 export const getPullRequestFiles = async (req: Request, res: Response) => {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    await requirePullRequest(id, getAuthedUserId(req));
     const files = await listPullRequestFiles(id);
     res.json({ data: files });
   } catch (error) {
+    if (error instanceof ResourceNotFoundError) {
+      return res.status(404).json({ error: "Pull request not found" });
+    }
     logger.error("GET /api/pull-requests/:id/files failed", {
       id: req.params.id,
       error: (error as Error).message,

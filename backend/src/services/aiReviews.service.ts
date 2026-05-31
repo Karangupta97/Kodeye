@@ -1,4 +1,4 @@
-import { getDB } from "../db/supabase";
+import { getServiceDB } from "../db/supabase";
 import { logger } from "../utils/logger";
 
 export interface AIReviewRecord {
@@ -14,15 +14,17 @@ export interface AIReviewRecord {
 
 export const insertReviews = async (
   prId: string,
-  reviews: AIReviewRecord[]
+  reviews: AIReviewRecord[],
+  userId: string
 ) => {
   if (!reviews.length) {
     return [];
   }
 
-  const supabase = getDB();
+  const supabase = getServiceDB();
   const records = reviews.map((review) => ({
     pr_id: prId,
+    user_id: userId,
     ...review,
   }));
 
@@ -39,12 +41,13 @@ export const insertReviews = async (
   return data || [];
 };
 
-export const listReviewsByPR = async (prId: string) => {
-  const supabase = getDB();
+export const listReviewsByPR = async (prId: string, userId: string) => {
+  const supabase = getServiceDB();
   const { data, error } = await supabase
     .from("ai_reviews")
     .select("*")
     .eq("pr_id", prId)
+    .eq("user_id", userId)
     .order("severity", { ascending: true })
     .order("confidence", { ascending: false });
 
@@ -56,12 +59,30 @@ export const listReviewsByPR = async (prId: string) => {
   return data || [];
 };
 
-export const deleteReviewsByPR = async (prId: string) => {
-  const supabase = getDB();
+export const getAiReviewById = async (findingId: string, userId: string) => {
+  const supabase = getServiceDB();
+  const { data, error } = await supabase
+    .from("ai_reviews")
+    .select("*")
+    .eq("id", findingId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) {
+    logger.error("Failed to fetch AI review", { error: error.message });
+    throw error;
+  }
+
+  return data;
+};
+
+export const deleteReviewsByPR = async (prId: string, userId: string) => {
+  const supabase = getServiceDB();
   const { error } = await supabase
     .from("ai_reviews")
     .delete()
-    .eq("pr_id", prId);
+    .eq("pr_id", prId)
+    .eq("user_id", userId);
 
   if (error) {
     logger.error("Failed to delete AI reviews", { error: error.message });
@@ -69,16 +90,45 @@ export const deleteReviewsByPR = async (prId: string) => {
   }
 };
 
-export const countReviewsByPR = async (prIds: string[]) => {
-  if (!prIds.length) {
-    return new Map<string, { total: number; critical: number; warning: number; suggestion: number }>();
+/** Remove stale findings after a successful insert; keeps rows in `keepIds`. */
+export const deleteReviewsByPRExcept = async (
+  prId: string,
+  userId: string,
+  keepIds: string[]
+) => {
+  const supabase = getServiceDB();
+  let query = supabase
+    .from("ai_reviews")
+    .delete()
+    .eq("pr_id", prId)
+    .eq("user_id", userId);
+
+  if (keepIds.length > 0) {
+    query = query.not("id", "in", `(${keepIds.join(",")})`);
   }
 
-  const supabase = getDB();
+  const { error } = await query;
+
+  if (error) {
+    logger.error("Failed to prune AI reviews", { error: error.message });
+    throw error;
+  }
+};
+
+export const countReviewsByPR = async (prIds: string[], userId: string) => {
+  if (!prIds.length) {
+    return new Map<
+      string,
+      { total: number; critical: number; warning: number; suggestion: number }
+    >();
+  }
+
+  const supabase = getServiceDB();
   const { data, error } = await supabase
     .from("ai_reviews")
     .select("pr_id, severity")
-    .in("pr_id", prIds);
+    .in("pr_id", prIds)
+    .eq("user_id", userId);
 
   if (error) {
     logger.error("Failed to count AI reviews", { error: error.message });
@@ -107,11 +157,12 @@ export const countReviewsByPR = async (prIds: string[]) => {
   return counts;
 };
 
-export const getTotalReviewStats = async () => {
-  const supabase = getDB();
+export const getTotalReviewStats = async (userId: string) => {
+  const supabase = getServiceDB();
   const { data, error } = await supabase
     .from("ai_reviews")
-    .select("severity, category");
+    .select("severity, category")
+    .eq("user_id", userId);
 
   if (error) {
     logger.error("Failed to get review stats", { error: error.message });

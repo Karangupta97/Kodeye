@@ -16,11 +16,13 @@ import {
 } from "../github/pr.service";
 import { getInstallationRepositories } from "../github/installation.service";
 import { GitHubRepositoryInfo, GitHubSenderInfo } from "../types/github";
+import { isUserPullRequestAuthor } from "../utils/pullRequestAuthor";
+import { resolveWebhookUserId } from "./userResolution.service";
 
 const mapRepositoryRecord = (
   repo: GitHubRepositoryInfo,
   installationId: number,
-  sender?: GitHubSenderInfo
+  userId: string | null
 ): RepositoryRecord => {
   return {
     github_repo_id: repo.id,
@@ -29,13 +31,15 @@ const mapRepositoryRecord = (
     owner:
       repo.owner?.login ||
       repo.full_name?.split("/")[0] ||
-      sender?.login ||
       "",
     installation_id: installationId,
     private: repo.private,
-    user_id: sender?.id ? String(sender.id) : null,
+    user_id: userId,
   };
 };
+
+const ownerLoginFromRepo = (repo: GitHubRepositoryInfo) =>
+  repo.owner?.login || repo.full_name?.split("/")[0] || null;
 
 export const handleInstallationEvent = async (payload: any) => {
   const installationId = payload.installation?.id;
@@ -67,7 +71,13 @@ export const handleInstallationEvent = async (payload: any) => {
   }
 
   for (const repo of repositories) {
-    await upsertRepository(mapRepositoryRecord(repo, installationId, sender));
+    const userId = await resolveWebhookUserId({
+      ownerLogin: ownerLoginFromRepo(repo),
+      senderLogin: sender?.login,
+    });
+    await upsertRepository(
+      mapRepositoryRecord(repo, installationId, userId)
+    );
   }
 };
 
@@ -97,7 +107,13 @@ export const handleInstallationRepositoriesEvent = async (payload: any) => {
   }
 
   for (const repo of repositoriesToUpsert) {
-    await upsertRepository(mapRepositoryRecord(repo, installationId, sender));
+    const userId = await resolveWebhookUserId({
+      ownerLogin: ownerLoginFromRepo(repo),
+      senderLogin: sender?.login,
+    });
+    await upsertRepository(
+      mapRepositoryRecord(repo, installationId, userId)
+    );
   }
 
   for (const repo of repositoriesRemoved) {
@@ -139,8 +155,35 @@ export const handlePullRequestEvent = async (payload: any) => {
   }
 
   const sender = payload.sender as GitHubSenderInfo | undefined;
+  const author = pullRequest.user?.login || "unknown";
+
+  if (!isUserPullRequestAuthor(author)) {
+    logger.info("Skipping automated pull request", {
+      deliveryId,
+      author,
+      pullNumber: pullRequest.number,
+    });
+    return;
+  }
+
+  const ownerLogin = ownerLoginFromRepo(repository);
+  const userId = await resolveWebhookUserId({
+    ownerLogin,
+    senderLogin: sender?.login,
+  });
+
+  if (!userId) {
+    logger.warn("Skipping pull request webhook — no Supabase user for repo", {
+      deliveryId,
+      ownerLogin,
+      sender: sender?.login,
+      repository: repository.full_name,
+    });
+    return;
+  }
+
   const repoRecord = await upsertRepository(
-    mapRepositoryRecord(repository, installationId, sender)
+    mapRepositoryRecord(repository, installationId, userId)
   );
 
   const prRecord = await upsertPullRequest({
@@ -149,9 +192,10 @@ export const handlePullRequestEvent = async (payload: any) => {
     pr_number: pullRequest.number,
     title: pullRequest.title,
     branch: pullRequest.head?.ref || "",
-    author: pullRequest.user?.login || "unknown",
+    author,
     status: pullRequest.state || "open",
     created_at: pullRequest.created_at || new Date().toISOString(),
+    user_id: userId,
   });
 
   logger.info("Pull request persisted", {
@@ -159,6 +203,7 @@ export const handlePullRequestEvent = async (payload: any) => {
     pullRequestId: prRecord.id,
     githubPrId: pullRequest.id,
     repoId: repoRecord.id,
+    userId,
   });
 
   const owner =
@@ -222,4 +267,3 @@ export const handlePullRequestEvent = async (payload: any) => {
     prNumber: pullRequest.number,
   });
 };
-
